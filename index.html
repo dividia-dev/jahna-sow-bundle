@@ -77,11 +77,11 @@ Customer: E.R. Jahna Industries.
 <div class="card-phase">Phase 1 — Manual measurement</div>
 <div class="card-status status-active">Current Quote 17938</div>
 </div>
-<div class="card-total">$44,469.55<small>one-time · $2,215 / yr recurring</small></div>
+<div class="card-total">$44,469.55<small>all-in for pilot site · $2,215 / yr recurring</small></div>
 <dl class="card-facts">
 <dt>Operator does</dt><dd>Marks axle lines manually with USB controller</dd>
-<dt>Hardware</dt><dd>NVR + Jetson + Moxas + UPS</dd>
-<dt>Dev hours</dt><dd>195 hr, fixed</dd>
+<dt>Hardware (pilot site)</dt><dd>NVR + Jetson + Moxas + UPS</dd>
+<dt>Dev hours total</dt><dd>195 hr, fixed (one-time across rollout)</dd>
 <dt>Prereq</dt><dd>None</dd>
 <dt>What it covers</dt><dd>Replaces AxlEye + DataBridge plugins. FastWeigh webhook integration. FDOT permit validation. Cloud audit trail.</dd>
 </dl>
@@ -92,13 +92,14 @@ Customer: E.R. Jahna Industries.
 <div class="card-phase">Phase 2 — AI-assisted measurement</div>
 <div class="card-status status-budgetary">Budgetary follow-on</div>
 </div>
-<div class="card-total">$27K – $54K<small>~$40.5K midpoint · T&amp;M</small></div>
+<div class="card-total">$71K – $98K<small>all-in for pilot · ~$85K midpoint · T&amp;M</small></div>
+<div class="card-delta">+ $27K – $54K vs Quote A · ~$40.5K midpoint</div>
 <dl class="card-facts">
 <dt>Operator does</dt><dd>Confirms / overrides AI's axle lines</dd>
-<dt>Hardware</dt><dd>None (same as Quote A)</dd>
-<dt>Dev hours</dt><dd>150 – 300, T&amp;M</dd>
+<dt>Hardware</dt><dd>Same as Quote A (no additional hardware)</dd>
+<dt>Dev hours total</dt><dd>345 – 495 hr (avg ~420). Includes Quote A's 195. <strong>Dev is one-time across all sites.</strong></dd>
 <dt>Prereq</dt><dd>Quote A in pilot (Phase 1 frames train the AI)</dd>
-<dt>What it covers</dt><dd>Software-only delta. AI auto-detects axles in the stationary side-view feed. Operator becomes reviewer.</dd>
+<dt>What it covers</dt><dd>Everything Quote A delivers, plus AI auto-detection of axles in the stationary side-view feed. Operator becomes reviewer.</dd>
 </dl>
 </div><div class="quote-card quote-c">
 <div class="card-band band-c"></div>
@@ -107,15 +108,16 @@ Customer: E.R. Jahna Industries.
 <div class="card-phase">Phase 3 — Full AI / in-motion read</div>
 <div class="card-status status-speculative">Speculative</div>
 </div>
-<div class="card-total">$45K – $91K<small>~$68K / site midpoint · T&amp;M</small></div>
+<div class="card-total">$117K – $189K<small>all-in for pilot · ~$153K midpoint · T&amp;M</small></div>
+<div class="card-delta">+ $45K – $91K vs Quote B · + $73K – $145K vs Quote A</div>
 <dl class="card-facts">
 <dt>Operator does</dt><dd>Exception-handling only on the happy path</dd>
-<dt>Hardware</dt><dd>+ Front-of-scale camera + mount; possibly lighting</dd>
-<dt>Dev hours</dt><dd>250 – 500, T&amp;M</dd>
+<dt>Hardware</dt><dd>Same as Quote A + front-of-scale camera + mount; possibly lighting (per site)</dd>
+<dt>Dev hours total</dt><dd>595 – 995 hr (avg ~795). Includes Quote A's 195 and Quote B's 150–300. <strong>Dev is one-time across all sites.</strong></dd>
 <dt>Prereq</dt><dd>Quote B in pilot</dd>
-<dt>What it covers</dt><dd>Single camera reads axles as truck rolls onto scale. Side-view + manual-line path retires by default.</dd>
+<dt>What it covers</dt><dd>Everything Quote B delivers, plus in-motion AI: a single front-of-scale camera reads axles as truck rolls onto the scale. Side-view + manual-line path retires by default.</dd>
 </dl>
-</div></div><hr>
+</div></div><p class="muted text-small" style="margin-top: 14px;"><strong>Per-additional-site cost (after pilot):</strong> ~$7,155 + $2,215 / yr per site for Quote A or B (hardware + per-site license; software dev does NOT repeat). Quote C adds ~$500 – $1,000 / site for the Phase 3 front-of-scale camera + mount + possibly lighting.</p><hr>
 <blockquote id="open-questions-summary">
 <p><strong>Open questions before final quote — quick index.</strong> None of these block producing the budgetary numbers below; we proceed with the assumptions noted and the ranges firm up as answers arrive. Inline <code>**[OPEN Q#N]**</code> markers throughout the doc point back here.</p>
 <table>
