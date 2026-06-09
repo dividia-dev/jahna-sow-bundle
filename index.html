@@ -736,14 +736,21 @@ Customer: E.R. Jahna Industries.
 <p>Hot-spare Jetson + cold-spare NVR on-site pre-configured for ≤5-min plug-and-play swap by a non-technical scale operator. LTE backup uplink (Cradlepoint or similar, <del>$60/mo/site). Cloud reconciliation worker that sweeps tickets missed during outages (contingent on FastWeigh webhook-replay answer). SMS + PagerDuty alerting with 1-hour engagement SLA. On-site spare kit (</del>$1,500–2,200/site). Annual site visit for surge / grounding / UPS audit.</p>
 <p><strong>Why call this out:</strong> the resilience design exists because Jahna&#39;s lightning-strike profile is real. If the customer wants &quot;ship and forget,&quot; the Failover tier is the line item that makes that operationally possible. If they want &quot;Standard,&quot; the UPS in Quote 17938 covers a meaningful subset already.</p>
 <hr>
-<h2 id="section-10">10. Source-of-truth references (internal — for verifying any item)</h2>
+<h2 id="section-10">10. Source-of-truth references</h2>
+<p>Each link below opens the relevant doc in a new tab. All are bundled here — nothing requires local access to David&#39;s machine.</p>
 <ul>
-<li><strong>Architecture spec:</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/architecture.md</code> (every claim labeled VERIFIED with code cite or ASSUMED)</li>
-<li><strong>Cross-repo project status:</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/cross-repo-status.md</code> (most-recent state, updated 2026-06-08)</li>
-<li><strong>Equipment-per-phase + reliability tier definitions:</strong> <code>~/Desktop/jahna-quote-meeting-2026-05-27/02-current-vs-future-flow.pdf</code> + <code>03-resilience-and-recovery.pdf</code></li>
-<li><strong>FastWeigh vendor call agenda:</strong> <code>~/Desktop/jahna-quote-meeting-2026-05-27/01-fastweigh-call-bullets.pdf</code> (the open blockers from TAC Insight that move quote hours up or down)</li>
-<li><strong>Customer call notes (2026-05-21):</strong> memory file <code>project_jahna_email_response_20260521</code> — operational rules, replacement scope, LPR-off decision</li>
-<li><strong>Worklog (hours sunk to date):</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/worklog.md</code> (~107–130 hr sunk pre-quote per the May 27 docs; ongoing)</li>
+<li><strong><a href="docs/architecture.html">Architecture spec</a></strong> — every claim labeled VERIFIED with code cite or ASSUMED</li>
+<li><strong><a href="docs/cross-repo-status.html">Cross-repo project status</a></strong> — most-recent state of the work across all 4 repos</li>
+<li><strong><a href="docs/open-questions.html">Open questions</a></strong> — full list of unresolved items with detail</li>
+<li><strong><a href="docs/decisions.html">Decisions (ADRs)</a></strong> — architecture decisions with rationale</li>
+<li><strong><a href="docs/fastweigh-integration.html">FastWeigh integration spec</a></strong> — webhook contract + integration design</li>
+<li><strong>Equipment-per-phase + reliability tier definitions</strong> — <a href="meeting/02-current-vs-future-flow.pdf">Current vs future flow (PDF)</a> + <a href="meeting/03-resilience-and-recovery.pdf">Resilience and recovery (PDF)</a></li>
+<li><strong><a href="meeting/01-fastweigh-call-bullets.pdf">FastWeigh vendor call agenda (PDF)</a></strong> — open blockers from TAC Insight that move quote hours up or down</li>
+<li><strong><a href="meeting/04-flow-timeline-walkthrough.pdf">Flow timeline walkthrough (PDF)</a></strong> — visualizes the per-truck flow today vs Phase 1 / 2 / 3</li>
+<li><strong><a href="docs/worklog.html">Worklog</a></strong> — project hours and session-by-session activity log</li>
+<li><strong>Customer call notes (2026-05-21)</strong> — captured internally; key facts (operational rules, replacement scope) are reflected in the <a href="docs/architecture.html">Architecture spec</a> §0 and <a href="docs/open-questions.html">Open questions</a></li>
+<li><strong><a href="quote-17938.pdf">Quote 17938 (PDF)</a></strong> — the actual current quote</li>
+<li><strong><a href="quote-mocks/phase2.pdf">Phase 2 budgetary mockup (PDF)</a></strong> + <strong><a href="quote-mocks/phase3.pdf">Phase 3 budgetary mockup (PDF)</a></strong> — the line-item mockups embedded in §6 above</li>
 </ul>
 
 
