@@ -14,7 +14,9 @@
 <p class="subtitle">Scope of Work + reference docs</p>
 <h2>Main</h2>
 <a href="index.html">Scope of Work</a>
-<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF, actual)</a>
+<a href="quote-mocks/phase2.pdf" target="_blank" class="external">Phase 2 mockup (PDF, budgetary)</a>
+<a href="quote-mocks/phase3.pdf" target="_blank" class="external">Phase 3 mockup (PDF, budgetary)</a>
 <h2>Technical reference</h2>
 <a href="docs/architecture.html" class="active">Architecture</a>
 <a href="docs/open-questions.html">Open questions</a>
@@ -101,7 +103,7 @@ Customer: E.R. Jahna Industries.
 <p><strong>Sanity check at receive.</strong> <code>thread_truck_transaction.py:_saveTicket</code> compares the wire <code>provider</code> tag against <code>PosType19.sTicketSource</code>. The apex-declared / cloud-arriving case is silently allowed (legacy migration path); other mismatches log a <code>PROVIDER MISMATCH</code> errMsg with both values so support can find the misconfiguration.</p>
 <p><strong>Migration</strong>: <code>20260523-sw-feature-stack.py</code> adds five PosType19 columns (<code>sTicketSource</code>, <code>fCloudUpload</code>, <code>fMeasurement</code>, <code>sMeasurementSource</code>, <code>fPermitValidation</code>) and creates <code>TicketLog</code> — a generic per-receive archive that replaces <code>ApexLog</code> for non-APEX providers (whose string-shaped uniqueids don&#39;t fit <code>ApexLog.bUniqueID BIGINT</code>). <code>ApexLog</code> stays in place for legacy APEX flow until that path migrates separately.</p>
 <hr>
-<h2>0. Customer &amp; operational context</h2>
+<h2 id="section-0">0. Customer &amp; operational context</h2>
 <p>All facts in this section <strong>[VERIFIED — customer call 2026-05-21]</strong> via cloudapi memory <code>project_jahna_email_response_20260521.md</code> and <code>reference_jahna_customer.md</code>.</p>
 <table>
 <thead>
@@ -181,7 +183,7 @@ Customer: E.R. Jahna Industries.
 </ol>
 <p>The loader-tablet feed at step 7 is the open Tier-2/3 scope question — see § 10 item 4.</p>
 <hr>
-<h2>1. The end-to-end flow</h2>
+<h2 id="section-1">1. The end-to-end flow</h2>
 <pre><code>[FastWeigh Cloud]
        │ Svix webhook: ticket.created (raw JSON ticket)
        ▼
@@ -218,7 +220,7 @@ Customer: E.R. Jahna Industries.
 [ScaleWatcher Portal — not started for Jahna yet]
        Future: measurement panel in transaction detail · measurement history · permit panel
 </code></pre>
-<h2>2. The NVR transaction lifecycle (cleared blocker)</h2>
+<h2 id="section-2">2. The NVR transaction lifecycle (cleared blocker)</h2>
 <p>This was the open question that blocked CloudAPI design. <strong>VERIFIED 2026-05-22</strong> by reading the NVR source.</p>
 <p><strong>NVR side is fire-and-forget per truck, append-only, single batch upload.</strong></p>
 <table>
@@ -260,7 +262,7 @@ Customer: E.R. Jahna Industries.
 <td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_cloud_sw.py:113-118, :131-137]</strong></td>
 </tr>
 </tbody></table>
-<h2>3. The CloudAPI transaction insert path</h2>
+<h2 id="section-3">3. The CloudAPI transaction insert path</h2>
 <p><strong>CloudAPI side is insert-only per upload. VERIFIED 2026-05-22.</strong></p>
 <table>
 <thead>
@@ -297,7 +299,7 @@ Customer: E.R. Jahna Industries.
 </tr>
 </tbody></table>
 <p>Together with §2, this means: <strong>NVR is the source of truth for transaction boundaries. CloudAPI is a write-through ledger.</strong> No multi-upload merging, no transaction revision.</p>
-<h2>4. The FastWeigh webhook receiver</h2>
+<h2 id="section-4">4. The FastWeigh webhook receiver</h2>
 <table>
 <thead>
 <tr>
@@ -337,7 +339,7 @@ Customer: E.R. Jahna Industries.
 <td><strong>[OPEN — see open-questions.md §1.1]</strong></td>
 </tr>
 </tbody></table>
-<h2>5. The measurement subsystem</h2>
+<h2 id="section-5">5. The measurement subsystem</h2>
 <h3>5a. Spot-decoder (C, runs on the Jahna site appliance)</h3>
 <table>
 <thead>
@@ -448,7 +450,7 @@ Customer: E.R. Jahna Industries.
 <td><strong>[VERIFIED cloudapi — by absence]</strong></td>
 </tr>
 </tbody></table>
-<h2>6. The permit subsystem</h2>
+<h2 id="section-6">6. The permit subsystem</h2>
 <h3>6a. NVR permit_client (built, untested at scale)</h3>
 <table>
 <thead>
@@ -530,7 +532,7 @@ Customer: E.R. Jahna Industries.
 <td><strong>[VERIFIED open-questions.md §1.2 answered 2026-05-21]</strong></td>
 </tr>
 </tbody></table>
-<h2>7. The dview side (small)</h2>
+<h2 id="section-7">7. The dview side (small)</h2>
 <table>
 <thead>
 <tr>
@@ -556,7 +558,7 @@ Customer: E.R. Jahna Industries.
 </tr>
 </tbody></table>
 <p><strong>[VERIFIED nvr — agent inventory 2026-05-22]</strong></p>
-<h2>8. The cv-axle-controller side (reference-only)</h2>
+<h2 id="section-8">8. The cv-axle-controller side (reference-only)</h2>
 <p>Per the 2026-05-19 decision recorded in <code>cv-axle-controller/memory/project_spot_decoder_decision.md</code>, the browser/Node.js app is no longer the production tool — measurement UI moved to spot-decoder C because browser focus issues are unreliable in a multi-window operator environment. cv-axle-controller stays as:</p>
 <ul>
 <li>The <strong>math reference</strong> (bridge formula JS at <code>web-app/src/bridge-formula.js:25-59</code> is functionally identical to <code>nvr/spot-decoder/src/measurement.c</code>)</li>
@@ -565,7 +567,7 @@ Customer: E.R. Jahna Industries.
 <li>The <strong>PCB + enclosure source</strong> (<code>docs/pcb-spec.md</code>, <code>docs/enclosure-component-spec.md</code>)</li>
 </ul>
 <p><strong>The C port should preserve coordinate convention, formula constants, and weight-cap rules from the JS reference.</strong> [ASSUMED parity — would need a spot-check diff between <code>bridge-formula.js</code> and <code>measurement.c</code> if a discrepancy is suspected.]</p>
-<h2>9. The scalewatcher portal side</h2>
+<h2 id="section-9">9. The scalewatcher portal side</h2>
 <p><strong>[CORRECTED 2026-06-09 — David]</strong> Prior framing of &quot;Phase 6 needs Measurement Panel / Permit Panel / Measurement History page / new filters&quot; as discrete components was wrong. Reality:</p>
 <p>Portal renders <code>SW_Event</code> rows generically — each event type&#39;s <code>sData</code> JSON is parsed at render time, so new event types (<code>MeasurementRecorded</code>, <code>Permit_Validated</code>, <code>Permit_ScanAttempted</code>, etc.) display automatically when the recorder upload pushes them through. The delta needed for Jahna is <strong>icons + small frontend tweaks</strong> (icons for the new event types in the Transaction Board legend, tare-half opacity, conditional event-key legend keyed on recorder-side <code>tare:true</code> + <code>provider:</code> fields). That work landed on the Jahna portal work branch per <code>transaction-board-ui-plan.md</code>.</p>
 <p>No dedicated panels, no new transaction-detail components, no measurement-history page, no new filter UI. The event-renderer + sData parsing + icon set is the whole portal-side delta.</p>
@@ -574,7 +576,7 @@ Customer: E.R. Jahna Industries.
 <li>React 18.3.1, CRA, Dockerized, currently at v2026.2.1</li>
 <li>Current portal API consumes: <code>sw/transactionboarddata</code>, <code>sw/searchbyticket</code>, <code>sw/searchbytransactionnumber</code>, <code>sw/transactionbyid</code>, <code>sw/gettransactionalertcomments</code></li>
 </ul>
-<h2>10. Cross-cutting assumptions still on faith</h2>
+<h2 id="section-10">10. Cross-cutting assumptions still on faith</h2>
 <p>These are the ASSUMED facts that aren&#39;t yet code-verified. Promote each to VERIFIED with a cite when proven.</p>
 <ol>
 <li><del>Measurement is INBOUND/tare only</del> <strong>RESOLVED — VERIFIED 2026-05-22</strong> via customer call 2026-05-21 (memory <code>project_jahna_email_response_20260521.md</code> §1). Loader tablet needs max weight BEFORE loading. Code enforcement still TODO — currently fires on every <code>STATE_FINISHED</code>. Track as code TODO, not as design assumption.</li>
@@ -584,7 +586,7 @@ Customer: E.R. Jahna Industries.
 <li><strong>Permit type — divisible vs nondivisible.</strong> Aggregate is divisible (≤10% over bridge formula). Sample permit shown was nondivisible. <strong>This is critical for our weight-calculation logic</strong> but the answer hasn&#39;t come back from Jahna yet. [open-questions.md §1.2]</li>
 <li><strong>TransactionGuid origin.</strong> AxlEye XML carries a guid that links measurement to ticket — we don&#39;t yet know if FastWeigh generates it, AxlEye does, or DataBridge does. Critical for tying our measurement to the right ticket. [open-questions.md §1.3]</li>
 </ol>
-<h2>11. Where the data lives at rest</h2>
+<h2 id="section-11">11. Where the data lives at rest</h2>
 <table>
 <thead>
 <tr>
