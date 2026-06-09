@@ -58,17 +58,14 @@ Customer: E.R. Jahna Industries.
 <h4>What will our system do?</h4>
 <p>Replace <strong>AxlEye + the two DataBridge plugins</strong> (AxlEye plugin + file-rename plugin). Receive FastWeigh tickets via webhook. Read FDOT permits from the QR camera (no FDOT account needed — public URL). Push our measurement INTO FastWeigh at tare time so the loader operator sees max-weight. Upload every transaction + permit PDF + measurement image to <strong>ScaleWatcher Cloud</strong> for audit + cross-site visibility Jahna doesn't have today. <a href="#section-2-2">Software detail in §2.2 ↓</a></p>
 </div><div class="qa-item">
-<h4>What will it NOT do?</h4>
-<p>NOT replace the Mettler Toledo DataBridge MS ticketing system — Jahna is doing that themselves with FastWeigh (their separate project). NOT replace FastWeigh itself. NOT do in-motion measurement at Phase 1 — that's Quote C. NOT build a separate permit-registry database. <a href="#section-3-6">Out-of-scope detail in §3.6 ↓</a></p>
-</div><div class="qa-item">
 <h4>Is there installation? Who hooks it up?</h4>
 <p>Quote 17938 does <strong>NOT</strong> include physical installation. Jahna or their electrician handles rack mount, conduit, electrical outlets, network drops, camera re-aiming — same pattern as how AxlEye was installed. If install scope IS needed, it's a separate billable line. Site walk after PO determines. <a href="#section-3-2">§3.2 ↓</a></p>
 </div><div class="qa-item">
 <h4>Cameras — who provides them?</h4>
 <p><strong>Customer reuses two existing Uniview cameras</strong> from the AxlEye setup at every site: side-view <code>IPC2324SR5-ADZK-G</code> + QR-permit <code>IPC3635SB-ADZK-I0</code>. The 4 × cloud licenses on the quote cover cameras whose images we upload to the cloud audit trail. Customer may want other existing cameras (overview, lot, second driver angle, etc.) connected — per-site count firms up at site walk. <a href="#section-3-1">§3.1 ↓</a></p>
 </div><div class="qa-item">
-<h4>What are we NOT providing a quote for?</h4>
-<p>Cameras (customer reuses) · Physical install / conduit / electrical (customer or their electrician) · FastWeigh subscription + credentials (customer arranges with TAC Insight) · FDOT permit access (free public URL, no integration cost) · Mettler Toledo DataBridge MS replacement (Jahna's separate project). <a href="#section-3">§3 ↓</a></p>
+<h4>What are we NOT providing a quote for currently?</h4>
+<p>("Currently" because some of these may need pricing later if the customer ends up needing them from us.) Cameras (customer reuses) · Physical install / conduit / electrical (customer or their electrician) · FastWeigh subscription + credentials (customer arranges with TAC Insight) · Mettler Toledo DataBridge MS replacement (Jahna's separate project). <a href="#section-3">§3 ↓</a></p>
 </div></div><h2>The three quote tracks at a glance</h2>
 <div class="quote-comparison"><div class="quote-card quote-a">
 <div class="card-band band-a"></div>
@@ -399,9 +396,7 @@ Customer: E.R. Jahna Industries.
 <td><strong>TAC Insight delivers.</strong> Replaces the customer-written HTML poller they run today. We integrate where their app surfaces our measurement data.</td>
 </tr>
 </tbody></table>
-<h3 id="section-3-5">3.5 FDOT permits — no cost or integration burden</h3>
-<p>The FDOT permit verification path uses <code>pas.fdot.gov</code> public URL. <strong>No FDOT account, no credentials, no integration fees.</strong> The driver shows the permit&#39;s QR code at the driver-window camera every truck, every time; we decode it, fetch the official PDF directly from FDOT, parse it. This is already implemented and verified against a real FDOT permit (GUID <code>ecda589c-7aaa-4c7b-9771-122133e533fd</code>).</p>
-<h3 id="section-3-6">3.6 What we are NOT replacing / supporting</h3>
+<h3 id="section-3-5">3.5 What we are NOT replacing / supporting</h3>
 <ul>
 <li><strong>Mettler Toledo DataBridge MS ticketing system</strong> — Jahna is replacing the ticketing system itself with FastWeigh on their own project (TAC Insight timeline; not ours). <strong>Not our scope.</strong> Note: the DataBridge <strong>AxlEye plugin</strong> and <strong>file-rename plugin</strong> ARE in our scope — we replace those as part of Quote A. Only the underlying DataBridge MS ticketing application is the Jahna-side replacement.</li>
 <li><strong>Loader-tablet hardware</strong> — Jahna&#39;s existing tablets are reused. <strong>Not our scope.</strong> FastWeigh&#39;s loader app runs on those same tablets, replacing the customer-written HTML poller they run today (that replacement is Jahna&#39;s FastWeigh migration — see § 2.2 for what our integration into FastWeigh covers).</li>
