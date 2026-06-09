@@ -13,29 +13,29 @@
 <h1>Jahna · Quote 17938</h1>
 <p class="subtitle">Scope of Work + reference docs</p>
 <h2>Main</h2>
-<a href="index.html">Scope of Work</a>
-<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF, actual)</a>
-<a href="quote-mocks/phase2.pdf" target="_blank" class="external">Phase 2 mockup (PDF, budgetary)</a>
-<a href="quote-mocks/phase3.pdf" target="_blank" class="external">Phase 3 mockup (PDF, budgetary)</a>
+<a href="../index.html">Scope of Work</a>
+<a href="../quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF, actual)</a>
+<a href="../quote-mocks/phase2.pdf" target="_blank" class="external">Phase 2 mockup (PDF, budgetary)</a>
+<a href="../quote-mocks/phase3.pdf" target="_blank" class="external">Phase 3 mockup (PDF, budgetary)</a>
 <h2>Technical reference</h2>
-<a href="docs/architecture.html">Architecture</a>
-<a href="docs/open-questions.html">Open questions</a>
-<a href="docs/decisions.html">Decisions (ADRs)</a>
-<a href="docs/cross-repo-status.html">Cross-repo status</a>
-<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<a href="architecture.html">Architecture</a>
+<a href="open-questions.html">Open questions</a>
+<a href="decisions.html">Decisions (ADRs)</a>
+<a href="cross-repo-status.html">Cross-repo status</a>
+<a href="fastweigh-integration.html">FastWeigh integration</a>
 <h2>Deep-dive</h2>
-<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
-<a href="docs/e2e-runbook.html">E2E test runbook</a>
-<a href="docs/measurement-plan.html">Measurement integration plan</a>
-<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<a href="transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="e2e-runbook.html">E2E test runbook</a>
+<a href="measurement-plan.html">Measurement integration plan</a>
+<a href="paired-mode-flow.html">Paired-mode flow</a>
 <h2>Project history</h2>
-<a href="docs/worklog.html" class="active">Worklog (project hours)</a>
-<a href="docs/readme.html">Hub overview (README)</a>
+<a href="worklog.html" class="active">Worklog (project hours)</a>
+<a href="readme.html">Hub overview (README)</a>
 <h2>Meeting deck (2026-05-27)</h2>
-<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
-<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
-<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
-<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<a href="../meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="../meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="../meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="../meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
 <div class="meta">
 Bundle generated 2026-06-09.<br>
 Author: David Smith, Dividia.<br>
@@ -48,6 +48,49 @@ Customer: E.R. Jahna Industries.
 <blockquote>
 <p>Append a daily summary at the end of each working session. Rough hours, not stopwatch-precise. Goal: have a defensible answer to &quot;how much time has this project consumed?&quot; when it&#39;s time to quote.</p>
 </blockquote>
+<hr>
+<h2>Summary — Total tracked hours by phase</h2>
+<p><strong>Total: ~138 hr</strong> of Jahna FastWeigh project work to date (2026-05-18 to 2026-06-09). <strong>Excludes</strong> the cv-axle-controller Arduino hardware track (firmware, enclosure, joystick, breadboard work from 2026-05-09 to 2026-05-15 — the Arduino path was retired when we pivoted to the macro keypad + Razer Stream Controller approach).</p>
+<table>
+<thead>
+<tr>
+<th>Period</th>
+<th>Focus</th>
+<th>Hours (approx.)</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>2026-05-18 → 2026-05-20</td>
+<td>Pivot to spot-decoder C; bridge-formula port from cv-axle-controller browser app; measurement_client implementation; dview small mods</td>
+<td>~20</td>
+</tr>
+<tr>
+<td>2026-05-21</td>
+<td>Customer call (Jahna) + E2E completion + FastWeigh webhook commit</td>
+<td>~11</td>
+</tr>
+<tr>
+<td>2026-05-22 → 2026-05-25</td>
+<td>Paired / bundled mode (later renamed <code>paired</code>); ScaleWatcher feature stack restructure; QR-camera architecture; transaction-lifecycle deep dive; cross-repo audit + HTML dashboard</td>
+<td>~53</td>
+</tr>
+<tr>
+<td>2026-06-01 → 2026-06-04</td>
+<td>Spot-decoder Phase 1 ship; branch split (generic FastWeigh vs Jahna-specific); comprehensive E2E test matrix (12 scenarios, 4 bugs fixed); libudev hotplug; 3-repo branching strategy</td>
+<td>~43</td>
+</tr>
+<tr>
+<td>2026-06-05 → 2026-06-08</td>
+<td>Develop-side extraction (Jahna-specific code parked on <code>task/86b9y6jc5-jahna-fastweigh-addons</code> branch; generic FastWeigh + paired-mode merged into develop in nvr + cloudapi) + ENS naming fix</td>
+<td>~9</td>
+</tr>
+<tr>
+<td>2026-06-09</td>
+<td>SOW for Quote 17938 + cross-doc IP-scales correction sweep + this bundle</td>
+<td>~2</td>
+</tr>
+</tbody></table>
+<p><strong>Context for Quote 17938:</strong> Quote 17938 ($44,469.55, 195 hr dev @ $180/hr) covers Phase 0 discovery + Phase 1 base delivery. The ~138 hr tracked here is the running engineering tally on the project. Customer-quoted hours and tracked hours overlap — they&#39;re not additive.</p>
 <hr>
 <h2 id="section-2026">2026-06-09 — SOW for Quote 17938 compiled + cross-doc IP-scales correction sweep</h2>
 <p>Approx <strong>~2 hr</strong> of session work. Ops manager (Chris L., via David) asked for a scope-of-work that answers: what hardware Dividia provides, what each piece is for, what we will/won&#39;t do, who handles install, what cameras Jahna provides vs. us, what we&#39;re NOT replacing, and the broader two-quote framing (manual measurement Phase 1 = Quote 17938 / AI measurement Phase 2 = follow-on). PDF reference: <code>~/Desktop/quote-17938.pdf</code> ($44,469.55, 195 dev hr @ $180, Mike Pater / Chris L. / 2026-05-27).</p>
@@ -931,25 +974,7 @@ hardware in hand.</p>
 </ul>
 <h3>Outstanding (blocked or deferred)</h3>
 <ul>
-<li><strong>VM4001 deploy + recorder end-to-end via FastWeigh webhook</strong> — rsync to <code>0.144</code> build host blocked twice: first by Claude Code&#39;s auto-mode classifier (sandbox flag on sshpass+rsync to shared infrastructure), then by <code>kex_exchange_identification: Connection reset by peer</code> on the SSH tunnel itself (0.144 unreachable from the office jump host right now).  My local cloudapi has all the new code via volume-mount; staging RDS proved the cloudapi side works.  The remaining unverified path is recorder→cloudapi (renaming + serialization of <code>_tare=True</code> events).  Will re-attempt when 0.144 is back up.</li>
-<li><strong>TicketReceivedTare in dview-lite</strong> — the web viewer may also need a small update if it shows event-name lists.  Not yet inspected.</li>
-<li><strong>Bucket H portal display</strong> — pending until staging has fresh paired-mode transactions (we&#39;ve now confirmed 4977714 exists and renders correctly via cloudapi response; still needs visual verification in the live portal at api-staging.cloud.dividia.net).</li>
-</ul>
-<hr>
-<h2 id="section-2026">2026-06-02 (late evening) — globalize-paired-toggle SHIPPED (committed, not yet pushed) — 4-layer bundle, 2509+ tests green, live MariaDB migration verified</h2>
-<p>Approx <strong>~2.5 hr</strong> of focused implementation work after Bucket F completion + design plans earlier today.</p>
-<h3>What landed (commit <code>336dadc28</code> on <code>task/86b9y6jc5-jahna-fastweigh-addons</code>)</h3>
-<p>The full globalize-paired-toggle plan implemented layer-by-layer as one bundled commit (per the plan&#39;s risk section — version-skew protection). Branch now 3 commits ahead of origin, NOT pushed.</p>
-<p><strong>Layer 1 — rda-db</strong> (1 new migration + 1 new test file):</p>
-<ul>
-<li><code>20260602-sw-globalize-paired-toggle.py</code>: OR-merge per-POS values into <code>Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;)</code>, then drop the column. Both steps idempotent.</li>
-<li><code>test_migrate_sw_globalize_paired_toggle.py</code>: 12 unit tests (fresh/seeded/partial/re-run/Misc-present/column-absent/idempotency/verbose-restoration)</li>
-<li><code>dtech.sql</code>: column removed from <code>CREATE TABLE PosType19</code>, new Misc seed row added</li>
-<li>Registered in <code>run_all.py</code></li>
-</ul>
-<p><strong>Layer 2 — recorder</strong> (4 files):</p>
-<ul>
-<li><code>thread_main.py</code>: f
+<li><strong>VM4001 deploy + recorder end-to-end via FastWeigh webhook</strong> — rsync to <code>0.144</code> build host blocked twice: first by Claude Code&#39;s auto-mode classifier (sandbox flag on sshpass+rsync to shared infrastructure), then by <code>kex_exchange_identification: Connection reset by peer</code> on the SSH tunnel itself (0.144 unreachable from the office jump host
   </main>
 </div>
 </body>

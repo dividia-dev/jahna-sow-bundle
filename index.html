@@ -71,7 +71,7 @@ Customer: E.R. Jahna Industries.
 <div class="card-band band-a"></div>
 <div class="card-header">
 <div class="card-name">Quote A</div>
-<div class="card-phase">Phase 1 — Manual measurement</div>
+<div class="card-phase">Manual measurement</div>
 <div class="card-status status-active">Current Quote 17938</div>
 </div>
 <div class="card-total">$44,469.55<small>all-in for pilot site · $2,215 / yr recurring</small></div>
@@ -86,7 +86,7 @@ Customer: E.R. Jahna Industries.
 <div class="card-band band-b"></div>
 <div class="card-header">
 <div class="card-name">Quote B</div>
-<div class="card-phase">Phase 2 — AI-assisted measurement</div>
+<div class="card-phase">AI-assisted measurement</div>
 <div class="card-status status-budgetary">Budgetary follow-on</div>
 </div>
 <div class="card-total">$71K – $98K<small>all-in for pilot · ~$85K midpoint · T&amp;M</small></div>
@@ -95,14 +95,14 @@ Customer: E.R. Jahna Industries.
 <dt>Operator does</dt><dd>Confirms / overrides AI's axle lines</dd>
 <dt>Hardware</dt><dd>Same as Quote A (no additional hardware)</dd>
 <dt>Dev hours total</dt><dd>345 – 495 hr (avg ~420). Includes Quote A's 195. <strong>Dev is one-time across all sites.</strong></dd>
-<dt>Prereq</dt><dd>Quote A in pilot (Phase 1 frames train the AI)</dd>
+<dt>Prereq</dt><dd>Quote A in pilot (Quote A frames train the AI)</dd>
 <dt>What it covers</dt><dd>Everything Quote A delivers, plus AI auto-detection of axles in the stationary side-view feed. Operator becomes reviewer.</dd>
 </dl>
 </div><div class="quote-card quote-c">
 <div class="card-band band-c"></div>
 <div class="card-header">
 <div class="card-name">Quote C</div>
-<div class="card-phase">Phase 3 — Full AI / in-motion read</div>
+<div class="card-phase">Full AI / in-motion read</div>
 <div class="card-status status-speculative">Speculative</div>
 </div>
 <div class="card-total">$117K – $189K<small>all-in for pilot · ~$153K midpoint · T&amp;M</small></div>
@@ -114,7 +114,7 @@ Customer: E.R. Jahna Industries.
 <dt>Prereq</dt><dd>Quote B in pilot</dd>
 <dt>What it covers</dt><dd>Everything Quote B delivers, plus in-motion AI: a single front-of-scale camera reads axles as truck rolls onto the scale. Side-view + manual-line path retires by default.</dd>
 </dl>
-</div></div><p class="muted text-small" style="margin-top: 14px;"><strong>Per-additional-site cost (after pilot):</strong> ~$7,155 + $2,215 / yr per site for Quote A or B (hardware + per-site license; software dev does NOT repeat). Quote C adds ~$500 – $1,000 / site for the Phase 3 front-of-scale camera + mount + possibly lighting.</p><hr>
+</div></div><p class="muted text-small" style="margin-top: 14px;"><strong>Per-additional-site cost (after pilot):</strong> ~$7,155 + $2,215 / yr per site for Quote A or B (hardware + per-site license; software dev does NOT repeat). Quote C adds ~$500 – $1,000 / site for the Quote C front-of-scale camera + mount + possibly lighting.</p><hr>
 <blockquote id="open-questions-summary">
 <p><strong>Open questions before final quote — quick index.</strong> None of these block producing the budgetary numbers below; we proceed with the assumptions noted and the ranges firm up as answers arrive. Inline <code>**[OPEN Q#N]**</code> markers throughout the doc point back here.</p>
 <table>
@@ -130,7 +130,7 @@ Customer: E.R. Jahna Industries.
 <td>Q1</td>
 <td>Does FastWeigh notify us when a ticket starts (webhook), or do we poll, or do we self-anchor?</td>
 <td>§ 8</td>
-<td>±20–40 hr swing on Phase 0; midpoint used for budgetary</td>
+<td>±20–40 hr swing on Quote A&#39;s integration discovery; midpoint used for budgetary</td>
 </tr>
 <tr>
 <td>Q2</td>
@@ -142,13 +142,13 @@ Customer: E.R. Jahna Industries.
 <td>Q3</td>
 <td>Exact mechanism for pushing our measurement INTO FastWeigh at tare</td>
 <td>§ 2.2, § 8</td>
-<td>The integration work IS in Phase 1 budget; only the mechanism (XML drop / write-back API / etc.) is open</td>
+<td>The integration work IS in Quote A budget; only the mechanism (XML drop / write-back API / etc.) is open</td>
 </tr>
 <tr>
 <td>Q4</td>
 <td>Are Jahna&#39;s permits divisible or nondivisible loads?</td>
 <td>§ 8</td>
-<td>Bridge-formula cap default works either way; correctable in Phase 1</td>
+<td>Bridge-formula cap default works either way; correctable in Quote A</td>
 </tr>
 <tr>
 <td>Q5</td>
@@ -188,19 +188,19 @@ Customer: E.R. Jahna Industries.
 </tr>
 <tr>
 <td>Q11</td>
-<td>What does the AI learn from? Phase 1 operator-marked frames, or labeled-from-scratch images?</td>
+<td>What does the AI learn from? Quote A operator-marked frames, or labeled-from-scratch images?</td>
 <td>§ 8</td>
-<td>Phase-2-only. Phase 1 generates the AI training data cheaply if we plan for it.</td>
+<td>Phase-2-only. Quote A generates the AI training data cheaply if we plan for it.</td>
 </tr>
 <tr>
 <td>Q12</td>
-<td>Phase 2 AI confidence threshold for AI-vs-operator handoff</td>
+<td>Quote B AI confidence threshold for AI-vs-operator handoff</td>
 <td>§ 8</td>
 <td>Phase-2-only. Customer policy call.</td>
 </tr>
 <tr>
 <td>Q13</td>
-<td>Phase 3 fallback design — clean replace, or keep side-view as fallback?</td>
+<td>Quote C fallback design — clean replace, or keep side-view as fallback?</td>
 <td>§ 5.2, § 8</td>
 <td>Default is clean replace; keep-fallback adds dev + hardware retention</td>
 </tr>
@@ -214,10 +214,10 @@ Customer: E.R. Jahna Industries.
 </blockquote>
 <hr>
 <h2 id="section-1">1. The three quote tracks — narrative</h2>
-<p>The cards above give the at-a-glance view. Customer wants both the manual product (Phase 1, available now via Quote 17938) AND the full AI / in-motion solution (Phase 3), with the AI-assisted intermediate (Phase 2) as a stepping stone that uses Phase 1 frames to train.</p>
-<p><strong>Why bundle Phase 1 hardware to support Phase 2 + 3 from day one:</strong> the Jetson Orin Nano/NX (<code>JETENGINE-X1</code> on the quote) is sized so we do NOT have to swap hardware when Phase 2 lands — same compute, same NVR, just a software update. Phase 3 adds a front-of-scale camera + mount + maybe lighting, nothing else.</p>
+<p>The cards above give the at-a-glance view. Customer wants both the manual product (Quote A, available now via Quote 17938) AND the full AI / in-motion solution (Quote C), with the AI-assisted intermediate (Quote B) as a stepping stone that uses Quote A frames to train.</p>
+<p><strong>Why bundle Quote A hardware to support Quote B + 3 from day one:</strong> the Jetson Orin Nano/NX (<code>JETENGINE-X1</code> on the quote) is sized so we do NOT have to swap hardware when Quote B lands — same compute, same NVR, just a software update. Quote C adds a front-of-scale camera + mount + maybe lighting, nothing else.</p>
 <hr>
-<h2 id="section-2">2. What Dividia provides (Quote A — Manual Measurement / Phase 1)</h2>
+<h2 id="section-2">2. What Dividia provides (Quote A — Manual Measurement)</h2>
 <p>This is the breakdown of Quote 17938&#39;s line items, mapped to what each piece does in the solution and what it replaces in Jahna&#39;s current stack.</p>
 <h3 id="section-2-1">2.1 Hardware Dividia provides (per Van Fleet site)</h3>
 <table>
@@ -282,7 +282,7 @@ Customer: E.R. Jahna Industries.
 <p>This is the custom software work that integrates FastWeigh with Dividia&#39;s stack and replaces what AxlEye + DataBridge currently do for Jahna. Roughly:</p>
 <ul>
 <li><strong>FastWeigh webhook integration</strong> — receive <code>ticket.created</code> from TAC Insight&#39;s Svix endpoint, HMAC-verify, route to the correct on-site NVR via WebSocket (cloudapi side, already built; needs production hardening + Svix credential negotiation with TAC Insight)</li>
-<li><strong>Measurement hand-off INTO FastWeigh at tare</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #3 — see summary at top of SOW">OPEN Q#3</a> — the customer-written HTML poller that today reads measurement XML from the scale-PC folder goes away when FastWeigh&#39;s loader app comes online (Jahna&#39;s FastWeigh migration). For the loader operator to see OUR max-weight number on the FastWeigh tablet app, our pipeline has to push the measurement into FastWeigh at tare time. The exact mechanism (XML drop into FastWeigh&#39;s intake folder, FastWeigh write-back API call, or other) is part of what we figure out with TAC Insight at integration time — this work is in our scope under Phase 1</li>
+<li><strong>Measurement hand-off INTO FastWeigh at tare</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #3 — see summary at top of SOW">OPEN Q#3</a> — the customer-written HTML poller that today reads measurement XML from the scale-PC folder goes away when FastWeigh&#39;s loader app comes online (Jahna&#39;s FastWeigh migration). For the loader operator to see OUR max-weight number on the FastWeigh tablet app, our pipeline has to push the measurement into FastWeigh at tare time. The exact mechanism (XML drop into FastWeigh&#39;s intake folder, FastWeigh write-back API call, or other) is part of what we figure out with TAC Insight at integration time — this work is in our scope under Quote A</li>
 <li><strong>Tare ↔ loadout pairing</strong> — merge the empty-truck (tare) measurement with the loaded-truck weight into one cloud audit transaction. Configurable correlation field (defaults to <code>truck_id</code>) so we can adapt to whatever FastWeigh actually emits</li>
 <li><strong>Spot Decoder C application</strong> — the bridge-formula UI on the HDMI display, USB controller input handling, calibration persistence, HTTP API the recorder calls into</li>
 <li><strong>FDOT permit validation</strong> — QR camera reads permit, recorder validates against <code>pas.fdot.gov</code> public URL, downloads the official PDF, parses permittee/expiration/axle limits/GVW. No FDOT credentials needed (public URL)</li>
@@ -402,57 +402,57 @@ Customer: E.R. Jahna Industries.
 <li><strong>Loader-tablet hardware</strong> — Jahna&#39;s existing tablets are reused. <strong>Not our scope.</strong> FastWeigh&#39;s loader app runs on those same tablets, replacing the customer-written HTML poller they run today (that replacement is Jahna&#39;s FastWeigh migration — see § 2.2 for what our integration into FastWeigh covers).</li>
 </ul>
 <hr>
-<h2 id="section-4">4. What Quote B (AI-assisted measurement / Phase 2) adds</h2>
+<h2 id="section-4">4. What Quote B (AI-assisted measurement) adds</h2>
 <p><strong>Not in Quote 17938.</strong> Scoped here so the customer sees the full roadmap.</p>
 <h3 id="section-4-1">4.1 What&#39;s delivered</h3>
 <ul>
 <li>AI watches the stationary side-view feed and auto-finds the first and last axle on the truck</li>
 <li>Auto-counts axles, runs the bridge formula, and fills the measurement in before the operator touches anything</li>
 <li>Operator&#39;s job shifts from &quot;place the lines&quot; to &quot;confirm the AI got it right&quot; — same controller, same display, just less work</li>
-<li>If the AI isn&#39;t sure, the operator places the lines manually exactly like Phase 1</li>
+<li>If the AI isn&#39;t sure, the operator places the lines manually exactly like Quote A</li>
 </ul>
 <h3 id="section-4-2">4.2 Hardware delta from Quote A</h3>
-<p><strong>None.</strong> Same Jetson, same cameras, same NVR, same UPS, same controllers, same licenses. Phase 2 is software only.</p>
+<p><strong>None.</strong> Same Jetson, same cameras, same NVR, same UPS, same controllers, same licenses. Quote B is software only.</p>
 <h3 id="section-4-3">4.3 Dev hours (NOT in Quote 17938)</h3>
-<p>Roughly 150–300 hours, billed time-and-materials. Firms up once Phase 1 is in pilot and we have real frames to work with.</p>
+<p>Roughly 150–300 hours, billed time-and-materials. Firms up once Quote A is in pilot and we have real frames to work with.</p>
 <h3 id="section-4-4">4.4 What Quote B does NOT do</h3>
 <ul>
-<li>Does not read axles while the truck is moving — that&#39;s Quote C / Phase 3 below</li>
+<li>Does not read axles while the truck is moving — that&#39;s Quote C below</li>
 <li>Does not remove the operator from the loop — they still confirm or override</li>
 <li>Does not change anything upstream (FastWeigh integration, permits, portal, etc.)</li>
 </ul>
 <hr>
-<h2 id="section-5">5. What Quote C (Full AI / in-motion read / Phase 3) adds</h2>
+<h2 id="section-5">5. What Quote C (Full AI / in-motion read) adds</h2>
 <p><strong>Not in Quote 17938 either.</strong> This is the &quot;full AI&quot; track the customer asked about. Most ambitious of the three.</p>
 <h3 id="section-5-1">5.1 What&#39;s delivered</h3>
 <ul>
 <li>A camera at the front of the scale watches the truck approach</li>
 <li>That single camera tracks, counts, and measures axles/tires as they roll past — providing all the data the bridge formula needs, without the truck having to stop</li>
 <li>Operator does almost nothing on a good run — just confirms the truck is the right one, the permit scan worked, and the result looks sane</li>
-<li>When the system isn&#39;t confident in its read (unusual truck, weather, glare, off-axis approach), it routes to the operator as an exception. <strong>Manual line placement is NOT a fallback here</strong> — the side-view camera that Phase 1/2 used for that is gone in Phase 3. Exception-handling mechanism is a Phase 3 design item.</li>
+<li>When the system isn&#39;t confident in its read (unusual truck, weather, glare, off-axis approach), it routes to the operator as an exception. <strong>Manual line placement is NOT a fallback here</strong> — the side-view camera that Quote A and Quote B used for that is gone in Quote C. Exception-handling mechanism is a Quote C design item.</li>
 </ul>
 <h3 id="section-5-2">5.2 Hardware delta from Quote B</h3>
 <ul>
 <li><strong>Camera at the front of the scale</strong> — either a brand-new install OR the existing side-view measurement camera repositioned to that spot. Per-site site walk decides.</li>
 <li><strong>Mount + cabling</strong> for the front-of-scale camera position</li>
 <li><strong>Possibly added lighting</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a> at the front-of-scale spot (same TX→FL caveat as Quote C open items in § 8 — can&#39;t know until on-site after PO)</li>
-<li><strong>Side-view measurement camera</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> — what happens to it is an open customer-design call (§ 8). Default design retires it (repositioned to the front-of-scale spot or removed) and the Phase 1 / Phase 2 line-placement mechanism goes away with it. Alternative: keep it in place as a fallback for low-confidence in-motion reads (adds dev + hardware retention cost).</li>
+<li><strong>Side-view measurement camera</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> — what happens to it is an open customer-design call (§ 8). Default design retires it (repositioned to the front-of-scale spot or removed) and the Quote A / Quote B line-placement mechanism goes away with it. Alternative: keep it in place as a fallback for low-confidence in-motion reads (adds dev + hardware retention cost).</li>
 <li><strong>QR permit camera stays</strong> — still needed for permit reading</li>
 <li><strong>Same Jetson, same NVR</strong> — no swaps to the compute or recording stack</li>
 </ul>
 <h3 id="section-5-3">5.3 Dev hours (NOT in Quote 17938)</h3>
-<p>Roughly 250–500 hours, billed time-and-materials. Speculative until Phase 2 is live — the in-motion AI builds on the stationary-AI baseline from Phase 2, so we can&#39;t size it precisely until that foundation exists.</p>
+<p>Roughly 250–500 hours, billed time-and-materials. Speculative until Quote B is live — the in-motion AI builds on the stationary-AI baseline from Quote B, so we can&#39;t size it precisely until that foundation exists.</p>
 <h3 id="section-5-4">5.4 What Quote C does NOT do</h3>
 <ul>
 <li>Doesn&#39;t remove the operator entirely — they still own exception cases and the &quot;is this the right truck&quot; confirmation</li>
-<li>In the <strong>default design</strong>, doesn&#39;t keep manual / AI-line measurement as a fallback — the side-view-camera-with-lines path used in Phase 1 / 2 retires with it. Customer may opt to keep that path as a fallback for low-confidence reads (open call — see § 8).</li>
+<li>In the <strong>default design</strong>, doesn&#39;t keep manual / AI-line measurement as a fallback — the side-view-camera-with-lines path used in Quote A and Quote B retires with it. Customer may opt to keep that path as a fallback for low-confidence reads (open call — see § 8).</li>
 <li>Doesn&#39;t replace the QR permit camera (that stays)</li>
 <li>Doesn&#39;t change anything upstream — FastWeigh integration, permits, cloud audit trail all unchanged</li>
 </ul>
 <hr>
 <h2 id="section-6">6. Budgetary estimates — Quote B and Quote C mockups</h2>
-<p>Line-item mockups for Quote B (Phase 2) and Quote C (Phase 3) in the same format as Quote 17938. <strong>These are budgetary estimates only, not binding quotes.</strong> Customer-side hardware / lighting / site-walk variables firm up at the point each phase is actually scoped. Dev hours assume the same $180 / hr rate Quote 17938 used.</p>
-<h3 id="section-6-1">6.1 Quote B — Phase 2 (AI-Assisted Measurement) — budgetary estimate</h3>
+<p>Line-item mockups for Quote B and Quote C in the same format as Quote 17938. <strong>These are budgetary estimates only, not binding quotes.</strong> Customer-side hardware / lighting / site-walk variables firm up at the point each phase is actually scoped. Dev hours assume the same $180 / hr rate Quote 17938 used.</p>
+<h3 id="section-6-1">6.1 Quote B (AI-Assisted Measurement) — budgetary estimate</h3>
 
 <div class="embed-wrap pdf" style="height:680px;">
   <iframe src="quote-mocks/phase2.pdf" title="Phase 2 Budgetary Mockup"></iframe>
@@ -482,7 +482,7 @@ Customer: E.R. Jahna Industries.
 <tr>
 <td>150 – 300</td>
 <td>DEVELOPMENT</td>
-<td>Phase 2 — AI-assisted stationary axle detection on the existing Jetson</td>
+<td>Quote B — AI-assisted stationary axle detection on the existing Jetson</td>
 <td>HR</td>
 <td>$180.00</td>
 <td><strong>$27,000 – $54,000</strong></td>
@@ -509,14 +509,14 @@ Customer: E.R. Jahna Industries.
 </tr>
 <tr>
 <td><strong>Prerequisite</strong></td>
-<td>Quote A in pilot; training data ideally sourced from Phase 1 operator-marked frames <a class="open-marker" href="index.html#open-questions-summary" title="Open question #11 — see summary at top of SOW">OPEN Q#11</a></td>
+<td>Quote A in pilot; training data ideally sourced from Quote A operator-marked frames <a class="open-marker" href="index.html#open-questions-summary" title="Open question #11 — see summary at top of SOW">OPEN Q#11</a></td>
 </tr>
 <tr>
 <td><strong>Open assumptions</strong></td>
 <td>AI confidence threshold for AI-vs-operator handoff <a class="open-marker" href="index.html#open-questions-summary" title="Open question #12 — see summary at top of SOW">OPEN Q#12</a></td>
 </tr>
 </tbody></table>
-<h3 id="section-6-2">6.2 Quote C — Phase 3 (Full AI / In-Motion Read) — budgetary estimate</h3>
+<h3 id="section-6-2">6.2 Quote C (Full AI / In-Motion Read) — budgetary estimate</h3>
 
 <div class="embed-wrap pdf" style="height:780px;">
   <iframe src="quote-mocks/phase3.pdf" title="Phase 3 Budgetary Mockup"></iframe>
@@ -570,7 +570,7 @@ Customer: E.R. Jahna Industries.
 <tr>
 <td>250 – 500</td>
 <td>DEVELOPMENT</td>
-<td>Phase 3 — in-motion AI axle detection, velocity-tolerant model, exception-only operator UI</td>
+<td>Quote C — in-motion AI axle detection, velocity-tolerant model, exception-only operator UI</td>
 <td>HR</td>
 <td>$180.00</td>
 <td><strong>$45,000 – $90,000</strong></td>
@@ -597,11 +597,11 @@ Customer: E.R. Jahna Industries.
 </tr>
 <tr>
 <td><strong>Prerequisite</strong></td>
-<td>Quote B in pilot; in-motion AI builds on Phase 2&#39;s stationary baseline</td>
+<td>Quote B in pilot; in-motion AI builds on Quote B&#39;s stationary baseline</td>
 </tr>
 <tr>
 <td><strong>Open assumptions</strong></td>
-<td>Fallback design (clean replace vs keep side-view) <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> · Lighting need per site <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a> · Camera model + velocity tolerance after Phase 2 baseline</td>
+<td>Fallback design (clean replace vs keep side-view) <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> · Lighting need per site <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a> · Camera model + velocity tolerance after Quote B baseline</td>
 </tr>
 <tr>
 <td><strong>Status</strong></td>
@@ -647,7 +647,7 @@ Customer: E.R. Jahna Industries.
 <hr>
 <h2 id="section-8">8. Open items that still affect the quotes</h2>
 <p>These are the things we don&#39;t have answers to yet. Most resolve from the FastWeigh vendor call (TAC Insight / Brad Artis) already on the books.</p>
-<h3>Affects Quote A (Phase 1):</h3>
+<h3>Affects Quote A (manual measurement):</h3>
 <table>
 <thead>
 <tr>
@@ -665,7 +665,7 @@ Customer: E.R. Jahna Industries.
 </tr>
 <tr>
 <td>How do we hand our measurement to FastWeigh so the loader operator sees it at tare?</td>
-<td>Three candidate ways: drop an XML file into FastWeigh&#39;s intake folder (same trick DataBridge uses today), call a FastWeigh write-back API, or something else they suggest. The work IS already in our Phase 1 budget — only the mechanism is open. Decided on the TAC Insight call.</td>
+<td>Three candidate ways: drop an XML file into FastWeigh&#39;s intake folder (same trick DataBridge uses today), call a FastWeigh write-back API, or something else they suggest. The work IS already in our Quote A budget — only the mechanism is open. Decided on the TAC Insight call.</td>
 </tr>
 <tr>
 <td>Are Jahna&#39;s permits divisible or nondivisible loads?</td>
@@ -680,7 +680,7 @@ Customer: E.R. Jahna Industries.
 <td>Need to acquire a Razer Stream Controller for dev bench-testing (customer reuses theirs; we don&#39;t have one yet). Confirm USB HID works against our Jetson spot-decoder input layer (<code>/dev/input/event*</code>). Likely plug-and-play; if not, minor keymap accommodations in our code. Small dev cost if any.</td>
 </tr>
 </tbody></table>
-<h3>Affects Quote B (only matters once we start building Phase 2):</h3>
+<h3>Affects Quote B (AI-assisted measurement):</h3>
 <table>
 <thead>
 <tr>
@@ -690,14 +690,14 @@ Customer: E.R. Jahna Industries.
 </thead>
 <tbody><tr>
 <td>Where the AI learns from</td>
-<td>Cheapest: use the frames operators marked during Phase 1 as the AI&#39;s training material. If we have to label frames from scratch instead, the dev hours go up significantly.</td>
+<td>Cheapest: use the frames operators marked during Quote A as the AI&#39;s training material. If we have to label frames from scratch instead, the dev hours go up significantly.</td>
 </tr>
 <tr>
 <td>How accurate the AI has to be before we trust it</td>
 <td>We need a number from the customer: at what confidence level does the AI get to drive the measurement vs. kick it back to the operator? Locked in before Quote B is binding.</td>
 </tr>
 </tbody></table>
-<h3>Affects Quote C (only matters once we start building Phase 3):</h3>
+<h3>Affects Quote C (full AI / in-motion read):</h3>
 <table>
 <thead>
 <tr>
@@ -711,7 +711,7 @@ Customer: E.R. Jahna Industries.
 </tr>
 <tr>
 <td>How fast trucks can be moving when the system reads them</td>
-<td>Depends on how the Phase 2 AI baseline turns out + how trucks approach the scale at each site (some sites have a long straight approach, some are tight).</td>
+<td>Depends on how the Quote B AI baseline turns out + how trucks approach the scale at each site (some sites have a long straight approach, some are tight).</td>
 </tr>
 <tr>
 <td>What happens when the AI on a moving truck isn&#39;t confident</td>
@@ -741,11 +741,11 @@ Customer: E.R. Jahna Industries.
 <li><strong><a href="docs/fastweigh-integration.html">FastWeigh integration spec</a></strong> — webhook contract + integration design</li>
 <li><strong>Equipment-per-phase + reliability tier definitions</strong> — <a href="meeting/02-current-vs-future-flow.pdf">Current vs future flow (PDF)</a> + <a href="meeting/03-resilience-and-recovery.pdf">Resilience and recovery (PDF)</a></li>
 <li><strong><a href="meeting/01-fastweigh-call-bullets.pdf">FastWeigh vendor call agenda (PDF)</a></strong> — open blockers from TAC Insight that move quote hours up or down</li>
-<li><strong><a href="meeting/04-flow-timeline-walkthrough.pdf">Flow timeline walkthrough (PDF)</a></strong> — visualizes the per-truck flow today vs Phase 1 / 2 / 3</li>
+<li><strong><a href="meeting/04-flow-timeline-walkthrough.pdf">Flow timeline walkthrough (PDF)</a></strong> — visualizes the per-truck flow today vs Quote A / B / C</li>
 <li><strong><a href="docs/worklog.html">Worklog</a></strong> — project hours and session-by-session activity log</li>
 <li><strong>Customer call notes (2026-05-21)</strong> — captured internally; key facts (operational rules, replacement scope) are reflected in the <a href="docs/architecture.html">Architecture spec</a> §0 and <a href="docs/open-questions.html">Open questions</a></li>
 <li><strong><a href="quote-17938.pdf">Quote 17938 (PDF)</a></strong> — the actual current quote</li>
-<li><strong><a href="quote-mocks/phase2.pdf">Phase 2 budgetary mockup (PDF)</a></strong> + <strong><a href="quote-mocks/phase3.pdf">Phase 3 budgetary mockup (PDF)</a></strong> — the line-item mockups embedded in §6 above</li>
+<li><strong><a href="quote-mocks/phase2.pdf">Quote B budgetary mockup (PDF)</a></strong> + <strong><a href="quote-mocks/phase3.pdf">Quote C budgetary mockup (PDF)</a></strong> — the line-item mockups embedded in §6 above</li>
 </ul>
 
 
