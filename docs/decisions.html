@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decisions (ADRs) — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html" class="active">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Decisions (ADRs)</div></header>
+    <h1>Architecture Decision Records — Jahna FastWeigh Integration</h1>
+<blockquote>
+<p>One ADR per non-trivial design choice. Date the decision. Note what was considered. Note what would force a revisit. When a decision is reversed, append a new ADR; don&#39;t rewrite history.</p>
+</blockquote>
+<hr>
+<h2>ADR-001 — Project hub lives in cloudapi/docs/jahna-fastweigh/</h2>
+<p><strong>Status:</strong> Accepted
+<strong>Date:</strong> 2026-05-22</p>
+<p><strong>Context.</strong> The Jahna FastWeigh feature spans 4 repos. gstack checkpoints, user-level memory, and CLAUDE.md are all scoped per repo directory. Two parallel Claude sessions (in nvr and cloudapi) had divergent context with no shared source of truth, leading to conflicting assumptions and wasted work.</p>
+<p><strong>Decision.</strong> Pick cloudapi as the project hub. Master docs live at <code>cloudapi/docs/jahna-fastweigh/</code>. Every other repo gets a one-line pointer doc and a memory entry routing back here.</p>
+<p><strong>Why cloudapi over alternatives:</strong></p>
+<ul>
+<li><strong>vs nvr (most code):</strong> cloudapi already had <code>docs/jahna-project-open-items.md</code> and 3 related design docs. Customer-facing artifacts (emails, permit PDFs) belong with REST/webhook code, which is in cloudapi.</li>
+<li><strong>vs a sibling workspace (<code>~/Desktop/dev_projects/jahna-fastweigh/</code>):</strong> would not be in git. If cloudapi is the repo most active on the project, anchoring docs there keeps them version-controlled with related code and visible to teammates.</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If cloudapi gets archived or the project&#39;s center of gravity shifts entirely to nvr, move the hub.</p>
+<hr>
+<h2>ADR-002 — No dedicated SW_Measurement table; ride on SW_Event with summary on SW_Transaction</h2>
+<p><strong>Status:</strong> Accepted
+<strong>Date:</strong> ~2026-05-20 (predates this ADR file — recorded retrospectively from <code>measurement-integration-plan.md</code> § 4)</p>
+<p><strong>Context.</strong> A naive approach would model measurement as its own first-class entity with a <code>SW_Measurement</code> table joined to <code>SW_Transaction</code> via a foreign key. Pros: cleaner schema, easier portal queries, native joins.</p>
+<p><strong>Decision.</strong> Measurement rides as a <code>MeasurementRecorded</code> event row inside <code>SW_Event</code> (full payload in <code>sData</code> JSON). Summary fields <code>bAxleCount</code> (int) and <code>fBridgePass</code> (tinyint) live directly on <code>SW_Transaction</code> so the portal can list/filter without parsing event JSON.</p>
+<p><strong>Why:</strong></p>
+<ul>
+<li>Measurement is one of many events that already accumulate on a transaction — separating it makes the schema asymmetric without need.</li>
+<li>NVR already batches everything (ticket, scale events, measurement, permit, alerts) into a single upload. Treating measurement as just another event row in that batch matches the existing pipeline.</li>
+<li>Summary on <code>SW_Transaction</code> covers all known portal filter/list use cases without joins.</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If portal develops query patterns that need first-class measurement entities (e.g., &quot;show all measurements regardless of transaction status,&quot; historical measurement aggregations independent of trucks), promote to its own table. <strong>[VERIFIED migration:</strong> <code>cloudapi/app/migrations/20260520000000-add-sw-transaction-measurement-columns.js</code><strong>]</strong></p>
+<hr>
+<h2>ADR-003 — Measurement UI moves from cv-axle-controller browser app to spot-decoder C</h2>
+<p><strong>Status:</strong> Accepted
+<strong>Date:</strong> 2026-05-19 (recorded in <code>cv-axle-controller/.claude.../memory/project_spot_decoder_decision.md</code>)</p>
+<p><strong>Context.</strong> Original implementation was a browser/Node.js app in cv-axle-controller. Operators reported that browser focus issues made it unreliable in a multi-window scale-house environment — keystrokes intended for measurement went to the wrong window.</p>
+<p><strong>Decision.</strong> Production measurement UI runs on the spot-decoder device (C, Linux framebuffer, direct USB HID input). The browser app and Arduino firmware stay in cv-axle-controller as the reference implementation and hardware test harness.</p>
+<p><strong>Why C over staying in browser:</strong></p>
+<ul>
+<li>Direct framebuffer rendering — no window manager, no focus to lose.</li>
+<li>Direct <code>/dev/input/event*</code> USB HID — no browser keystroke interception.</li>
+<li>Already integrated with the existing spot-decoder video pipeline (FFmpeg, overlay rendering, HTTP API).</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If a use case demands operator interaction outside the scale house (e.g., reviewing a recorded measurement on a tablet), we&#39;d reintroduce a web/native UI for that path — but spot-decoder remains primary for live measurement.</p>
+<p><strong>Implementation status.</strong> <code>nvr/spot-decoder/src/measurement.c</code> (838 lines), 111/111 bridge-formula tests passing. Awaiting hardware test (open-questions.md / PROGRESS.md &quot;Blocked&quot; section).</p>
+<hr>
+<h2>ADR-004 — NVR is the source of truth for transaction boundaries; CloudAPI is a write-through ledger</h2>
+<p><strong>Status:</strong> Accepted (retroactively documented — implicit in current code)
+<strong>Date:</strong> 2026-05-22 (writeup), implementation dates back to original recorder design</p>
+<p><strong>Context.</strong> A truck&#39;s data spans multiple events: ticket arrival, scale events, axle measurement, permit validation, alerts, images. Two reasonable models:</p>
+<ul>
+<li><strong>A — NVR holds an open transaction across the truck flow; uploads once at finish.</strong> NVR&#39;s <code>TruckTransaction</code> object accumulates everything, then sends a single batch.</li>
+<li><strong>B — Cloud holds an open transaction; NVR posts events individually as they happen; cloud merges them by transaction id.</strong></li>
+</ul>
+<p><strong>Decision.</strong> Model A. NVR&#39;s <code>TruckTransaction</code> is the transaction; CloudAPI just inserts one row per upload.</p>
+<p><strong>Why A over B:</strong></p>
+<ul>
+<li>NVR has the operational context (which physical truck, which scale, which lane) that lets it group events correctly even if FastWeigh ticket and scale event arrive seconds apart.</li>
+<li>Single upload simplifies retry semantics — NVR queues a JSON file, retries on failure, deletes on 200. No partial transaction state to reconcile.</li>
+<li>Cloud doesn&#39;t need a state machine; just an insert path. Far simpler to reason about.</li>
+</ul>
+<p><strong>Implementation:</strong></p>
+<ul>
+<li>NVR <code>STATE_PROCESSING → STATE_FINISHED</code> then <code>cloudAdd(scale_id, events, imgs)</code> once <strong>[VERIFIED <code>nvr/recorder/src/scalewatcher/thread_truck_transaction.py:617-691, :827</code>]</strong></li>
+<li>CloudAPI <code>POST /sw/</code> does one INSERT + one UPDATE + one batch INSERT events <strong>[VERIFIED <code>cloudapi/app/controllers/scalewatcher/transaction.js:651-671, :885-894, :898-917</code>]</strong></li>
+</ul>
+<p><strong>What forces a revisit.</strong> If we ever need cloud-side merging (e.g., two scale houses reporting on the same truck independently), we&#39;d need transaction-id reconciliation at cloud. Not on the roadmap.</p>
+<hr>
+<h2>ADR-005 — FastWeigh webhook ingestion: raw JSON pass-through, no normalization</h2>
+<p><strong>Status:</strong> Accepted
+<strong>Date:</strong> 2026-05-18 (recorded in <code>fastweigh-integration.md</code>)</p>
+<p><strong>Context.</strong> Existing scale integrations (APEX, Command Alkon) have their own ticket schemas. The naive approach to a new vendor is to normalize their fields to our internal model.</p>
+<p><strong>Decision.</strong> Pass the FastWeigh webhook ticket through to NVR as raw JSON. Strip only routing fields (<code>serial</code>, <code>port</code>, <code>type</code>) at the cloud edge; tag <code>provider:&#39;fastweigh&#39;</code>. The NVR-side <code>CloudTicket</code> adapter wraps the dict to expose the <code>.rgsOverlay</code>, <code>.bTicket</code>, <code>.bUniqueID</code>, etc. interface that the rest of NVR expects from a <code>Ticket</code> object.</p>
+<p><strong>Why:</strong></p>
+<ul>
+<li>FastWeigh&#39;s payload shape is documented (Svix-delivered JSON) but field names may drift over time. A normalization layer becomes a maintenance burden every time FastWeigh adds a field we care about.</li>
+<li>The NVR side already supports adapter-pattern ticket sources (APEX <code>Ticket</code>, <code>CloudTicket</code>). Adding a new provider is changing one adapter, not a translation layer.</li>
+<li>Reduces cloud-side complexity to almost nothing — cloud is mostly a proxy + persistence layer.</li>
+</ul>
+<p><strong>Implementation.</strong> <code>cloudapi/app/controllers/scalewatcher/fastweigh.js:25-40</code> (<code>prepareTicket</code>) and <code>:56-74</code> (<code>pushTicketToNvr</code>). Adapter on NVR side: <code>recorder/src/scalewatcher/thread_cloud_websocket.py:82-87</code> wrap-in-CloudTicket.</p>
+<p><strong>What forces a revisit.</strong> If we end up integrating 3+ webhook providers (FastWeigh, FastWeigh competitor, in-house), the duplication across NVR adapters may justify a thin normalization layer. Not yet.</p>
+<hr>
+<h2>ADR-006 — No dedicated SW_Permit table; permits ride as events, same as ADR-002 for measurement</h2>
+<p><strong>Status:</strong> Accepted (retroactively documented — implicit in current code as of 2026-05-21)
+<strong>Date:</strong> 2026-05-22 (writeup), decision predates this file</p>
+<p><strong>Context.</strong> Original design (open-questions.md, pre-2026-05-21) considered modeling permits as a first-class entity with <code>SW_Permit</code> joined to <code>SW_Transaction</code> via FK, and considered whether the relationship was per-truck or per-permittee. Original migration even added a <code>bPermit INT FK</code> column on <code>SW_Transaction</code> in anticipation.</p>
+<p><strong>Decision.</strong> Same shape as ADR-002 (measurement). Permits ride as <code>Permit_Validated</code> event rows in <code>SW_Event</code> (parsed fields in <code>sData</code> JSON), and the permit PDF rides as a transaction image attachment. No dedicated <code>SW_Permit</code> table. The pre-existing <code>bPermit</code> column on <code>SW_Transaction</code> is a vestige with no FK target and can be dropped in a cleanup migration whenever — not blocking.</p>
+<p><strong>Why:</strong></p>
+<ul>
+<li>Same arguments as ADR-002: the data already flows through the per-truck batch upload; carving out a separate entity makes the schema asymmetric without need.</li>
+<li>Customer confirmed (2026-05-21) that permits are per-permittee (drivers switch trailers across the day), so a per-truck FK would have been wrong anyway. A per-permittee entity would force us to invent a &quot;permittee&quot; identity layer that adds maintenance burden and doesn&#39;t unlock new portal queries.</li>
+<li>The <code>Permit_Validated</code> event already carries everything: permit number, expiration, validity, parsed fields, errors, GUID. The PDF is right there as an image. Portal queries that need &quot;all permits validated in date range X&quot; or &quot;all transactions with invalid permits&quot; can run against <code>SW_Event</code> with type=<code>Permit_Validated</code>.</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If a portal use case emerges that requires permit-as-first-class (e.g., &quot;show me every transaction that used permit 12345 regardless of carrier or date&quot;), we&#39;d add a thin index table — not a full entity. Note: same trigger logic as ADR-002 for measurement.</p>
+<p><strong>Cite:</strong> <code>nvr/recorder/src/scalewatcher/permit_client.py</code> (parser), <code>thread_truck_transaction.py:779</code> (event), <code>:788</code> (PDF image), <code>cloudapi/db/init.sql:636</code> (the vestige column).</p>
+<h2>ADR-007 — FDOT PAS access uses public URL from permit QR code, no credentials</h2>
+<p><strong>Status:</strong> Accepted
+<strong>Date:</strong> 2026-05-21 (implementation), 2026-05-22 (writeup)</p>
+<p><strong>Context.</strong> Original assumption (open-questions.md §1.2 as originally written) was that we&#39;d need authenticated FDOT PAS credentials to validate permits, mirroring how AxlEye accesses PAS. Concern was that without auth we couldn&#39;t reach permit detail. Open item flagged: <em>&quot;Get Jahna&#39;s PAS credentials or a sub-account for us.&quot;</em></p>
+<p><strong>Decision.</strong> Skip credentials entirely. The QR code physically printed on every FDOT overweight permit decodes to a public PAS URL: <code>https://pas.fdot.gov/Public/ViewPermit/{guid}</code>. That page is publicly accessible. The clean PDF is at <code>https://pas.fdot.gov/Public.aspx/ShowPermitDocument/{guid}</code>. We extract the GUID from the QR text, download the PDF binary, parse it, and we&#39;re done. No login, no scraping the ASP.NET UI, no credentials.</p>
+<p><strong>Why:</strong></p>
+<ul>
+<li>Public endpoints are stable; ASP.NET pages drift. The PDF format is regulator-controlled and changes far less often than the FDOT web UI.</li>
+<li>No credential management, no rotation, no compliance overhead, no Jahna-specific account setup.</li>
+<li>Faster path to first deployment — no pending blocker on customer-side provisioning.</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If FDOT ever locks the <code>/Public/ShowPermitDocument</code> endpoint behind auth, we&#39;d need to re-evaluate. They could also rate-limit; not currently a problem at one validation per inbound truck.</p>
+<p><strong>Cite:</strong> <code>nvr/recorder/src/scalewatcher/permit_client.py:7-9, :44, :85-100, :136</code>. Verified against real permit <code>ecda589c-7aaa-4c7b-9771-122133e533fd</code> per memory <code>project_permit_validation.md</code>.</p>
+<hr>
+<h2>ADR-008 — Measurement is gated to tare-side (inbound) only</h2>
+<p><strong>Status:</strong> Accepted (retroactively documented — implementation already in production code)
+<strong>Date:</strong> 2026-05-24 (writeup), implementation predates per <code>feat/scalewatcher-feature-stack</code></p>
+<p><strong>Context.</strong> Customer (Jahna, 2026-05-21 email) confirmed measurement happens on the inbound/tare leg of a paired transaction so the loader tablet can see the truck&#39;s max allowed weight <em>before</em> loading. Bridge formula is computed from axle geometry, which is the same whether the truck is empty or loaded — measuring on inbound is the natural choice. Measuring on outbound too would either double the work or risk overwriting the inbound measurement with a stale/garbage one.</p>
+<p><strong>Decision.</strong> The recorder fetches measurement (and validates permit) only on the tare side of a paired transaction. Loadout tickets do not trigger measurement. Discriminator is <code>fIsTareForMeasurement</code>, computed from paired-mode config plus the <code>_isTareTicket()</code> classifier.</p>
+<p><strong>Why:</strong></p>
+<ul>
+<li>Matches the customer&#39;s actual workflow — inbound is when the operator runs the measurement, and the result must be ready when the loader tablet picks up the truck.</li>
+<li>One source of truth per transaction. No reconciliation between two measurements of the same truck.</li>
+<li>Cleaner alert semantics: <code>Alert_NoMeasurement</code> / <code>Alert_StaleMeasurement</code> only meaningful on the side that should have produced one.</li>
+</ul>
+<p><strong>What forces a revisit.</strong> If a site ever runs only outbound scales (no separate tare house, only loaded weighing), or if a customer asks for after-loading axle-spread verification, we&#39;d need a per-site override. Not on the roadmap.</p>
+<p><strong>Cite:</strong> <code>nvr/recorder/src/scalewatcher/thread_truck_transaction.py:723-775</code> — <code>fIsTareForMeasurement</code> gate around <code>fetch_measurement()</code> and <code>Measurement_Recorded</code> event creation. Alert events <code>Alert_NoMeasurement</code> / <code>Alert_StaleMeasurement</code> only fire from the tare branch.</p>
+<hr>
+<h2>Future ADR seeds (write these when the decisions are made)</h2>
+<ul>
+<li><strong>ADR-009 — Loader tablet feed strategy</strong> — depends on what tablets run today (open-questions.md §1.0)</li>
+<li><strong>ADR-010 — QR permit reader: where does the QR text actually originate?</strong> Recorder consumes <code>PermitScanned</code>/<code>QrRead</code>/<code>QRRead</code> events but doesn&#39;t produce them. Candidates: camera firmware feature, separate QR-reader thread, mobile app driver self-service. (open-questions.md §1.0a, <code>project_qr_integration_question</code> memory)</li>
+<li><strong>ADR-011 — Divisible vs nondivisible permit weight rules</strong> — affects bridge formula caps + blanket-permit GVW lookup (open-questions.md §1.2). Recorder&#39;s <code>permit_client.py</code> already parses <code>axle_weight_limits</code> but no consumer applies them yet.</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>

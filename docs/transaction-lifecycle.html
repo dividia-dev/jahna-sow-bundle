@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transaction lifecycle deep-dive — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html" class="active">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Transaction lifecycle deep-dive</div></header>
+    <h1>NVR Transaction Lifecycle — Deep Dive</h1>
+<blockquote>
+<p><strong>Naming note (2026-05-23):</strong> the feature was initially called &quot;bundled-mode&quot; during design and first implementation. Renamed to &quot;paired-mode&quot; on 2026-05-23 — identifiers, columns, hub doc, and prose updated in one atomic refactor (nvr branch <code>tasks/86b9y6jc5</code>). A few historical quotes below preserve the original &quot;bundle/bundled&quot; wording for context.</p>
+<p>Scope: <strong>NVR-internal transaction model only.</strong> Read of the actual current code in <code>~/Desktop/dev_projects/nvr/recorder/src/scalewatcher/*</code>, <code>recorder/src/thread_main.py</code>, and <code>dview/src/net/dividia/dview/backend/config/PosType19.java</code>. Every claim has a <code>[VERIFIED file:line]</code> cite.</p>
+<p>Question this answers: <strong>Can the NVR start a single transaction at the tare scale, hold it open, capture loadout-side events when the truck reaches the outbound scale, and emit one paired upload — for both the combined-scale and separated-scale physical layouts?</strong></p>
+<p>Short answer up top: <strong>Not natively. The current state machine is one-transaction-per-POS-instance, no cross-scale correlation, and treats each tare cycle and each loadout cycle as separate independent transactions. The pairing model is achievable but requires concrete code additions on the NVR side. Both Tier 1 (minimum surgery) and Tier 3 (clean architecture) options are sketched at the bottom.</strong></p>
+</blockquote>
+<p><strong>Author / refresh:</strong> 2026-05-22, model-correction banner added 2026-06-02
+<strong>Status:</strong> Analysis only — no code changes. No commitment implied.</p>
+<blockquote>
+<p><strong>MODEL CORRECTION 2026-06-02:</strong> This doc&#39;s &quot;Tier 1 / Tier 3&quot; framing and any references to <code>transactionGuid</code> / <code>ticketPending</code> as the correlation source are <strong>superseded</strong>. Current model: <strong>tare↔loadout correlation keys on a configurable PosType19 tare-ticket field (default <code>truck_id</code>), provider-agnostic across Apex XML and FastWeigh JSON.</strong> Existing mechanism = <code>fPairTareLoadout</code> + <code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code>. See <code>paired-mode-flow.md</code> for the live mechanics and <code>architecture.md</code> § 1a for the provider-agnostic stack. The &quot;how we hand FastWeigh our measurement data&quot; question is <strong>parked / not in current test scope</strong>.</p>
+</blockquote>
+<hr>
+<h2>1. Executive summary</h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Current state</th>
+<th>Pairing-friendly?</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Hold a transaction open while accumulating events</td>
+<td>YES, <code>STATE_PROCESSING</code> does exactly this</td>
+<td>YES, this is the foundation</td>
+</tr>
+<tr>
+<td>Configurable start / finish triggers per direction</td>
+<td>YES, <code>sStartTransaction(Inbound)</code> and <code>sFinishTransaction(Inbound)</code> in PosType19 config</td>
+<td>YES, the hooks exist</td>
+</tr>
+<tr>
+<td>Direction switching (inbound vs outbound) at runtime</td>
+<td>NO. <code>cInboundDirectionTrigger</code> is hardcoded <code>None</code> for POSType19 — the inbound config is parsed but never triggered. Every transaction is treated as Outbound</td>
+<td><strong>NO, this is the first blocker</strong></td>
+</tr>
+<tr>
+<td>Auto-finish on max-open-time exceeded</td>
+<td>YES — <code>bHungTransTimeout</code> (default 60 min, max 60 min in current UI)</td>
+<td>YES, but the 60-min UI cap may need lifting</td>
+</tr>
+<tr>
+<td>Multiple concurrent trucks on one POS</td>
+<td>NO (POSType19). Only PSCL supports it via <code>shipmentID</code>. POSType19 holds 0 or 1 truck in <code>truck_list[sName]</code></td>
+<td>Depends — see § 6</td>
+</tr>
+<tr>
+<td>Cross-POS-instance correlation (tare scale POS ↔ loadout scale POS)</td>
+<td>NO. Each POSType19 instance has its own thread, own <code>truck_list</code>, no shared state</td>
+<td><strong>NO, this is the second blocker for separated-scale layouts</strong></td>
+</tr>
+<tr>
+<td>Cloud-ticket routing to specific POS instance</td>
+<td>PARTIAL. CloudAPI sends <code>port</code> in the ticket_event WebSocket message, but the NVR-side handler ignores it and broadcasts to all POSType19 instances</td>
+<td><strong>NO, needs per-port targeting on NVR side</strong></td>
+</tr>
+<tr>
+<td>Per-event direction tagging (so cloud can tell tare event from loadout event in the same batch)</td>
+<td>NO. All accumulated events are dumped into one <code>cloudEvents[]</code> list. The bundle doesn&#39;t tell you which scale fired which event without inference</td>
+<td><strong>NO, needs an extra field on each event or a sub-section in the upload payload</strong></td>
+</tr>
+<tr>
+<td>State persistence across recorder restart</td>
+<td>YES — pickled to <code>/tmp/rda/recorder_thread_{bID}_state.pkl</code></td>
+<td>YES, good</td>
+</tr>
+<tr>
+<td>Single physical scale doing tare-then-loadout-in-same-visit</td>
+<td>Treated as TWO separate transactions today (one per scale event sequence)</td>
+<td><strong>NO native concept of &quot;this loadout is the same truck as the prior tare on this scale&quot;</strong></td>
+</tr>
+</tbody></table>
+<p><strong>Bottom line:</strong> the NVR has the <em>primitives</em> (open state, event accumulation, configurable triggers, hung-timeout, state pickling) but lacks the <em>composition</em> (multi-phase transactions, cross-POS linking, ticket-to-NVR-port routing) to do the bundle natively. The composition is buildable on top of what&#39;s there; no rewrite needed. § 6 and § 7 sketch the two paths.</p>
+<hr>
+<h2>2. The TruckTransaction container</h2>
+<p>The unit-of-work object that gets uploaded.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Set by</th>
+<th>Notes</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>shipmentID</code></td>
+<td>str</td>
+<td>Constructor (default <code>&quot;0&quot;</code>)</td>
+<td>PSCL-specific multi-truck tracker. POSType19 always uses <code>&quot;0&quot;</code></td>
+<td><code>thread_truck_transaction.py:51, 197</code></td>
+</tr>
+<tr>
+<td><code>guid</code></td>
+<td>str</td>
+<td>Constructor (default <code>&quot;0&quot;</code>)</td>
+<td>Used by PSCL for batching tracking</td>
+<td><code>:51, 137</code></td>
+</tr>
+<tr>
+<td><code>direction</code></td>
+<td>str</td>
+<td><code>setDirection()</code></td>
+<td>&quot;Inbound&quot;, &quot;Outbound&quot;, or &quot;Unknown&quot;</td>
+<td><code>:56, 89, 1266</code></td>
+</tr>
+<tr>
+<td><code>cStartTransaction</code></td>
+<td>event class</td>
+<td><code>setDirection()</code></td>
+<td>Which event class begins the transaction</td>
+<td><code>:57, 89, 1272-1284</code></td>
+</tr>
+<tr>
+<td><code>cFinishTransaction</code></td>
+<td>event class</td>
+<td><code>setDirection()</code></td>
+<td>Which event class ends the transaction</td>
+<td><code>:58, 89, 1272-1284</code></td>
+</tr>
+<tr>
+<td><code>rgoUseImage</code></td>
+<td>list[dict]</td>
+<td><code>setDirection()</code></td>
+<td>Camera-image config for this direction</td>
+<td><code>:59, 89, 1272-1284</code></td>
+</tr>
+<tr>
+<td><code>state</code></td>
+<td>int</td>
+<td><code>clear()</code> initially <code>STATE_WAITING</code>; mutated by state machine</td>
+<td>1=WAITING, 2=PROCESSING, 3=FINISHED</td>
+<td><code>:71, 45-47</code></td>
+</tr>
+<tr>
+<td><code>bTimer</code></td>
+<td>int (epoch seconds)</td>
+<td><code>startTimer()</code></td>
+<td>Set when entering PROCESSING; used for hung-timeout</td>
+<td><code>:72, 98-99, 107-112</code></td>
+</tr>
+<tr>
+<td><code>ticket</code></td>
+<td><code>Ticket</code> or <code>CloudTicket</code></td>
+<td><code>_saveTicket()</code></td>
+<td>Single ticket; second-ticket-with-different-number forces finish</td>
+<td><code>:73, 1535-1545, 662-667</code></td>
+</tr>
+<tr>
+<td><code>tareWeight</code></td>
+<td>int</td>
+<td><code>_processScaleEvents()</code> on <code>Scale_TruckOn</code></td>
+<td>First stable scale reading</td>
+<td><code>:74, 847-853</code></td>
+</tr>
+<tr>
+<td><code>maxWeight</code></td>
+<td>int</td>
+<td><code>_processScaleEvents()</code> on <code>Scale_TruckOn</code> and <code>Scale_TruckLeaving</code></td>
+<td>Highest scale reading seen</td>
+<td><code>:75, 850-867</code></td>
+</tr>
+<tr>
+<td><code>bTicketDelayTimer</code></td>
+<td>int</td>
+<td><code>_shouldDelayFinishTransaction</code></td>
+<td>Per-loop counter waiting for late ticket (used when scale finishes before APEX prints)</td>
+<td><code>:76, 561-590</code></td>
+</tr>
+<tr>
+<td><code>fForcedByError</code></td>
+<td>bool</td>
+<td><code>_handleWaitingState</code> on scale/valve error events</td>
+<td>Forces immediate finish after upload</td>
+<td><code>:66, 77, 627-630, 687-689</code></td>
+</tr>
+<tr>
+<td><code>cloudEvents</code></td>
+<td>list[Event]</td>
+<td><code>addEvent()</code></td>
+<td>The accumulated event stream uploaded to cloud</td>
+<td><code>:61, 120-125</code></td>
+</tr>
+<tr>
+<td><code>imgs</code></td>
+<td>list[dict]</td>
+<td><code>_grabImages*()</code>, <code>_handleFinishedState</code> (measurement + permit)</td>
+<td>Captured camera images (with base64 data); also holds the spot-decoder measurement screenshot (cam 99) and FDOT permit PDF (cam 98)</td>
+<td><code>:63, 732-739, 788-796</code></td>
+</tr>
+</tbody></table>
+<p><strong>Lifecycle methods:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>clear()</code></td>
+<td>Reset state to WAITING, delete cached image files from disk, empty <code>cloudEvents</code> and <code>imgs</code></td>
+<td><code>:70-86</code></td>
+</tr>
+<tr>
+<td><code>merge(truck)</code></td>
+<td>Merge another TruckTransaction&#39;s events + images + shipment/guid + ticket. Used by PSCL multi-truck flows</td>
+<td><code>:127-143</code></td>
+</tr>
+<tr>
+<td><code>checkTimerTimeout(bHungTransTimeout=60)</code></td>
+<td>Returns True if <code>getDuration() &gt; bHungTransTimeout</code> (seconds). Called by main thread&#39;s <code>_processHungTransactions()</code></td>
+<td><code>:107-112</code></td>
+</tr>
+<tr>
+<td><code>hasEvent(event_class)</code></td>
+<td>Linear scan of <code>cloudEvents</code> for an event of this class</td>
+<td><code>:114-118</code></td>
+</tr>
+</tbody></table>
+<p>A <code>TruckTransaction</code> is a clearable container. It&#39;s not aware of &quot;tare phase&quot; vs &quot;loadout phase&quot; — it&#39;s one bag of events.</p>
+<hr>
+<h2>3. The state machine</h2>
+<p>Three states, with explicit transition rules. Driven by the <code>run()</code> loop in <code>ThreadTruckTransaction</code> (<code>:489-555</code>).</p>
+<h3>3a. The main loop (<code>:504-547</code>)</h3>
+<p>Every iteration:</p>
+<ol>
+<li><strong>Get next event</strong> from the in-queue (<code>qEvent</code>, max depth 10). <code>qEvent.get(True, 0.1)</code> so empty queues poll at 10Hz. [<code>:1249-1258</code>]</li>
+<li><strong>Process hung transactions</strong> — call <code>_processHungTransactions()</code> (forces finish on any truck whose timer is past <code>bHungTransTimeout</code>). [<code>:508, 2026-2039</code>]</li>
+<li><strong>If no event:</strong> <code>continue</code> (so hung-check runs every poll regardless of event traffic).</li>
+<li><strong>Get truck for this event</strong> via <code>_getTruckForEvent(event)</code> (returns the single truck for POSType19; creates one if none exists, with default direction &quot;Outbound&quot;). [<code>:512, 1983-2012</code>]</li>
+<li><strong>Maybe delay finish</strong> via <code>_shouldDelayFinishTransaction(truck, event)</code> (CRH-specific workaround: scale finishes before APEX prints ticket, so wait <code>bTicketPrintDelay</code> seconds for a late ticket). [<code>:517, 561-590</code>]</li>
+<li><strong>Overlay event on live video</strong> (<code>_overlayLiveEvent</code>) and force-record on all cameras (<code>_forceVideoRecording</code>). [<code>:521-524</code>]</li>
+<li><strong>Track truck-on-scale flag</strong> for <code>Scale_TruckEntering</code>/<code>Scale_TruckLeaving</code>. [<code>:527-530</code>]</li>
+<li><strong>Process scale events</strong> (capture tare/max weight from <code>Scale_TruckOn</code>/<code>Scale_TruckLeaving</code>, fire tare alert if exceeded). [<code>:535, 847-867</code>]</li>
+<li><strong>State machine dispatch</strong> based on <code>truck.state</code>. [<code>:538-545</code>]</li>
+</ol>
+<h3>3b. STATE_WAITING (<code>_handleWaitingState</code>, <code>:595-632</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Trigger</th>
+<th>Transition</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Scale_TruckOnAtStartup</code></td>
+<td>stays WAITING, sets <code>fSkipTruck=True</code></td>
+<td>Truck was already on scale when recorder booted — skip all reporting for this visit</td>
+</tr>
+<tr>
+<td><code>cls == cInboundDirectionTrigger</code></td>
+<td>stays WAITING, sets direction to &quot;Inbound&quot;</td>
+<td><strong>For POSType19, <code>cInboundDirectionTrigger</code> is <code>None</code> (line 336, 363) — dead code path.</strong> Direction-switch never fires</td>
+</tr>
+<tr>
+<td><code>cls == truck.cStartTransaction</code> (and not a no-op <code>Valve_Opened</code>-without-truck-on-scale edge case)</td>
+<td>→ PROCESSING</td>
+<td>Normal start</td>
+</tr>
+<tr>
+<td><code>cls == TICKET_RECEIVED_EVENT</code></td>
+<td>→ PROCESSING (force)</td>
+<td>If a ticket arrives without a start event, accept it</td>
+</tr>
+<tr>
+<td>Error events (<code>Scale_LostConnection</code>, <code>Scale_RestoredConnection</code>, <code>Scale_DataFail</code>, <code>Valve_DataFail</code>)</td>
+<td>→ PROCESSING (force, <code>fForcedByError=True</code>)</td>
+<td>Bubble errors to cloud ASAP</td>
+</tr>
+</tbody></table>
+<h3>3c. STATE_PROCESSING (<code>_handleProcessingState</code>, <code>:634-691</code>)</h3>
+<p>This is the <strong>event accumulator</strong>. Every event passes through here while in this state.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>When</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Start timer if not started</td>
+<td>Always on first event of this transaction</td>
+<td><code>:646-647</code></td>
+</tr>
+<tr>
+<td>Grab images for the event class</td>
+<td>If we haven&#39;t grabbed for this event class yet</td>
+<td><code>:650-657</code></td>
+</tr>
+<tr>
+<td><code>truck.addEvent(event)</code> (append to <code>cloudEvents</code>)</td>
+<td>Always (unless filtered as duplicate Valve_DataFail)</td>
+<td><code>:670-671, 120-125</code></td>
+</tr>
+<tr>
+<td><code>_saveTicket(truck, ticket_or_dict)</code> if <code>cls == TICKET_RECEIVED_EVENT</code></td>
+<td>On ticket arrival</td>
+<td><code>:674-675, 1535-1545</code></td>
+</tr>
+<tr>
+<td>Force-finish (return STATE_FINISHED)</td>
+<td>(1) duplicate start event without seeing finish; (2) second ticket with different number; (3) ticket arrives with no truck on scale (when scale is configured); (4) the configured <code>cFinishTransaction</code> arrives; (5) <code>fForcedByError</code> is set</td>
+<td><code>:637-643, 662-667, 677-685, 687-689</code></td>
+</tr>
+</tbody></table>
+<h3>3d. STATE_FINISHED (<code>_handleFinishedState</code>, <code>:693-841</code>)</h3>
+<p>This is where <strong>upload happens</strong> and where measurement + permit are fetched.</p>
+<ol>
+<li><strong>Minimum-duration filter</strong> — if <code>getDuration() &lt; bMinTransDuration</code> AND no ticket AND not forced by error → CLEAR truck and return to WAITING without uploading. (&quot;bouncing scale&quot; protection.) [<code>:696-702</code>]</li>
+<li><strong>Grab remaining images</strong> for any cam:event pair not yet captured. [<code>:705, 1396-1487</code>]</li>
+<li><strong>Process theft-deterrent reports</strong> (alerts on overweight, tare contamination, gross weight mismatch, manual ticket, waste ticket). [<code>:708, 1077-1230</code>]</li>
+<li><strong>Fetch measurement from spot-decoder</strong> if <code>measurementClient</code> is configured. Adds <code>Measurement_Recorded</code> event + cam 99 screenshot image. Fires <code>Alert_StaleMeasurement</code> or <code>Alert_NoMeasurement</code> as appropriate. [<code>:711-762</code>]</li>
+<li><strong>Fetch and validate FDOT permit</strong> if <code>permitClient</code> is configured AND <code>_findPermitQrText</code> finds a <code>pas.fdot.gov</code> URL in the event stream or ticket data. Adds <code>Permit_Validated</code> event + cam 98 PDF image. Fires <code>Alert_InvalidPermit</code> or <code>Alert_NoPermit</code>. [<code>:768-824, 1355-1394</code>]</li>
+<li><strong>Upload</strong> — <code>self.cloudAdd(self.bID, truck.cloudEvents, truck.imgs)</code> — single fire-and-forget dispatcher callback to <code>ThreadCloudSW.addEvent</code>. [<code>:827</code>]</li>
+<li><strong>Save ticket files locally</strong> (inbound or standard, with overlay rendering). [<code>:830-834, 879-1075</code>]</li>
+<li><strong>Clear truck</strong> (delete image files, reset state) → return STATE_WAITING. [<code>:837, 2014-2024</code>]</li>
+</ol>
+<h3>3e. Hung-transaction force-finish (<code>_processHungTransactions</code>, <code>:2026-2039</code>)</h3>
+<p>Runs every loop iteration. Iterates <code>truck_list[sName]</code>. For any truck whose <code>checkTimerTimeout(self.bHungTransTimeout)</code> returns True, <strong>directly calls <code>_handleFinishedState(truck)</code></strong> — bypassing the normal state-machine dispatch. This means the timeout path emits whatever events have been accumulated, exactly as the normal finish would.</p>
+<p>The timer starts at the <strong>first event of STATE_PROCESSING</strong> (<code>:646-647</code>), not at transaction creation. A truck sitting in WAITING does not count toward the timeout.</p>
+<h3>3f. State persistence (<code>saveState</code>/<code>loadState</code>, <code>:1907-1970</code>)</h3>
+<p>The full <code>truck_list[sName]</code>, plus any queued-but-unprocessed events, plus <code>fTruckOnScale</code> and <code>fSkipTruck</code>, are pickled to <code>/tmp/rda/recorder_thread_{bID}_state.pkl</code> on shutdown. <code>loadState()</code> restores everything on startup. Survives recorder restart but not necessarily a full machine reboot (depends on <code>tmpdir</code> survival).</p>
+<p><strong>Implication for the pairing question:</strong> a transaction held in PROCESSING across a recorder restart survives. Useful — if the recorder crashes mid-cycle, the tare-side events aren&#39;t lost.</p>
+<hr>
+<h2>4. Event ingestion paths</h2>
+<p>Where events come INTO <code>ThreadTruckTransaction.addEvent</code> (which enqueues to <code>qEvent</code> for the state machine to process).</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Wiring</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Local POS ticket reader (APEX serial/TCP)</td>
+<td><code>thread_ticket_reader.py:577</code> fires <code>Ticket_Received(bTicket, Ticket)</code>. Wired in <code>thread_main.py:1424</code>: <code>oThreadTicketReader.receivedEvent += oThreadPOS.addEvent</code></td>
+<td><code>thread_main.py:1422-1424</code></td>
+</tr>
+<tr>
+<td>Cloud WebSocket ticket (FastWeigh/CommandCloud)</td>
+<td><code>thread_cloud_websocket.py:82-87</code> parses <code>ticket_event</code> messages, fires <code>Ticket_Received(number, ticket_dict)</code>. Wired in <code>thread_main.py:1411</code>: <code>oThreadCloudWebsocket.ticketPushEvent += oThreadPOS.addEvent</code></td>
+<td><code>thread_cloud_websocket.py:82-87</code>, <code>thread_main.py:1408-1411</code></td>
+</tr>
+<tr>
+<td>Scale reader (per scale)</td>
+<td><code>thread_scale_reader.py</code> fires <code>truckEnteringEvent</code>/<code>truckOnEvent</code>/<code>truckLeavingEvent</code>/<code>truckOnAtStartupEvent</code>/connection events. Wired in <code>thread_main.py:1425-1432</code></td>
+<td><code>thread_scale_reader.py:74-76, 594-657</code>, <code>thread_main.py:1425-1432</code></td>
+</tr>
+<tr>
+<td>Valve reader (per valve)</td>
+<td><code>valveOpenedEvent</code>/<code>valveClosedEvent</code>/<code>valveDataFailEvent</code></td>
+<td><code>thread_main.py:1433-1436</code></td>
+</tr>
+<tr>
+<td>PLC reader (load complete)</td>
+<td><code>plcEvent</code></td>
+<td><code>thread_main.py:1441-1442</code></td>
+</tr>
+<tr>
+<td>Object-detection truck approaching/leaving</td>
+<td>per camera</td>
+<td><code>thread_main.py:1450-1453</code></td>
+</tr>
+<tr>
+<td>LPR (license plate read)</td>
+<td>per camera</td>
+<td><code>thread_main.py:1455-1457</code></td>
+</tr>
+</tbody></table>
+<p><strong>Critical observation about the cloud ticket path:</strong></p>
+<ul>
+<li>The CloudAPI <code>pushTicketToNvr</code> (in <code>cloudapi/app/controllers/scalewatcher/fastweigh.js:56-74</code>) embeds a <code>port</code> field in the <code>data</code> payload alongside <code>ticket</code>/<code>number</code>/<code>provider</code>.</li>
+<li>The NVR <code>on_message</code> handler in <code>thread_cloud_websocket.py:82-87</code> <strong>does not read <code>port</code></strong>. It just fires <code>Ticket_Received(number, ticket_data_dict)</code> and the <code>ticketPushEvent</code> dispatcher fans out to <strong>every subscribed POSType19 instance</strong>.</li>
+<li>Every POS19 instance on the recorder sees every cloud ticket. Whichever is in PROCESSING (or transitions to PROCESSING in response) will save the ticket via <code>_saveTicket</code>.</li>
+<li><strong>For a multi-POS setup (separated tare + loadout scales = two POS19 instances)</strong>, ticket routing is broadcast, not targeted. Both POS instances would attempt to claim the ticket. The second-ticket-different-number force-finish path (<code>:662-667</code>) would partially shield, but the design is racy.</li>
+</ul>
+<hr>
+<h2>5. Scale event emission</h2>
+<p>The scale reader (<code>thread_scale_reader.py</code>) runs as a separate thread, one per scale device. It polls the scale serial/TCP feed and emits the four scale event classes.</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>When emitted</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Scale_TruckEntering()</code></td>
+<td>On motion detected + weight rising past <code>bTruckEnterMinWeight</code>. Also force-emitted if <code>Scale_TruckOn</code> arrives without a prior entering event (recovery path)</td>
+<td><code>:594, 630</code></td>
+</tr>
+<tr>
+<td><code>Scale_TruckOn(weight)</code></td>
+<td>Once weight stabilizes above <code>bTareMinimum</code> and we don&#39;t yet have a tare. The first stable reading <strong>is the tare weight</strong></td>
+<td><code>:598-603</code></td>
+</tr>
+<tr>
+<td><code>Scale_TruckLeaving(tareWeight, maxWeight)</code></td>
+<td>When weight drops below <code>bTareMinimum</code> while we have a <code>bMaxWeight</code> recorded (truck is off). Also fired on disconnect-then-stable-near-zero (recovery)</td>
+<td><code>:614, 655</code></td>
+</tr>
+<tr>
+<td><code>Scale_TruckOnAtStartup()</code></td>
+<td>On startup if a truck is already on the scale</td>
+<td><code>:448</code></td>
+</tr>
+<tr>
+<td><code>Scale_LostConnection</code>, <code>Scale_RestoredConnection</code>, <code>Scale_DataFail</code></td>
+<td>On error transitions</td>
+<td>(other lines in same file)</td>
+</tr>
+</tbody></table>
+<p><strong>Each scale reader has its own state.</strong> A truck on the tare scale fires the four-event sequence (Entering → On → Leaving → optional second On if it lingers). Drives away, comes back loaded — that&#39;s ANOTHER full sequence on the SAME scale (single-scale layout) or the SAME sequence on a DIFFERENT scale reader (separated-scale layout).</p>
+<p><strong>The reader has no concept of &quot;this is the same truck as five minutes ago.&quot;</strong> It just emits events as it sees them.</p>
+<hr>
+<h2>5b. The existing APEX tare/loadout linking mechanism — <code>ApexInboundCache</code> is already in production for POSType19</h2>
+<p><strong>Critical finding I underweighted in earlier sections.</strong> POSType19 (Scale Watcher) already has a tare-loadout linking mechanism that&#39;s been in production for APEX customers for years. The mechanism operates on the LOCAL NVR file/DB layer — it does NOT pair the cloud upload, but it DOES merge tare-side images into the loadout-side combined PDF locally. The pairing work in §§ 10-11 below is an extension of this existing pattern, not a from-scratch invention.</p>
+<h3>5b.1 The two ticket types</h3>
+<p>APEX itself emits two distinct ticket types that flow through this NVR as <code>Ticket_Received</code> events with different <code>bTicket</code> values:</p>
+<table>
+<thead>
+<tr>
+<th>Ticket type</th>
+<th>Discriminator</th>
+<th>Path in <code>_handleFinishedState</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tare/inbound ticket</td>
+<td><code>bTicket == &#39;0&#39;</code> (literally the string zero)</td>
+<td>calls <code>_saveInboundTicket</code> → adds to <code>ApexInboundCache</code></td>
+</tr>
+<tr>
+<td>Loadout/standard ticket</td>
+<td><code>bTicket != &#39;0&#39;</code> (a real numeric ticket number)</td>
+<td>calls <code>_saveStandardTicket</code> → pulls matching inbound from cache, merges into local PDF</td>
+</tr>
+</tbody></table>
+<p><strong>[VERIFIED <code>thread_truck_transaction.py:831-834</code>]:</strong></p>
+<pre><code class="language-python">if truck.hasTicket():
+    if self.fInboundEnable and truck.ticket.bTicket == &#39;0&#39;:
+        self._saveInboundTicket(truck)
+    else:
+        self._saveStandardTicket(truck)
+</code></pre>
+<h3>5b.2 Tare-cycle storage path (<code>_saveInboundTicket :879-922</code>)</h3>
+<p>When a tare-side transaction reaches STATE_FINISHED with <code>bTicket == &#39;0&#39;</code>:</p>
+<ol>
+<li>Each <code>truck.imgs[]</code> entry is copied to <code>GB[&#39;inbounddir&#39;]</code> with filename pattern <strong><code>Inbound.{POS_id}.{timestamp}.{cam_num}i.jpg</code></strong> <code>:896</code></li>
+<li>Tare-ticket overlay text is burned onto each image <code>:905-911</code></li>
+<li><code>self.oInboundCache.add(ticket.oXML, bTimestamp, rgsJPG)</code> <code>:918</code> writes:<ul>
+<li>A row into MariaDB <code>ApexInboundLog</code>: <code>(bID, dTimestamp, sTicket)</code> — the FULL APEX XML ticket is stored as <code>sTicket</code> <code>apex_inbound_cache.py:151-160</code></li>
+<li>If a prior cache entry for the same matching-key exists, purges it first <code>:46-49</code></li>
+</ul>
+</li>
+<li><strong>Note:</strong> <code>cloudAdd</code> has ALREADY fired at line 827 BEFORE this code runs, so the cloud has already seen the tare-only transaction. The cache is for local PDF assembly only.</li>
+</ol>
+<h3>5b.3 Loadout-cycle merge path (<code>_saveStandardTicket :924-1075</code>)</h3>
+<p>When a loadout-side transaction reaches STATE_FINISHED with <code>bTicket != &#39;0&#39;</code>:</p>
+<ol>
+<li>Loadout&#39;s own images are processed normally (moved to permanent PDF dir, overlay burned) <code>:948-1029</code></li>
+<li><strong>The match-and-merge happens at <code>:1031-1042</code>:</strong><pre><code class="language-python">if self.fInboundEnable:
+    oCacheEntry = self.oInboundCache.get( ticket.oXML )
+    if oCacheEntry is not None:
+        dbgMsg( self.sLogName, &#39;found inbound lane tickets in cache, adding to combined file&#39; )
+        for sJPG in oCacheEntry.getPhoto():
+            # ... move each inbound JPG into the loadout&#39;s PDF directory
+</code></pre>
+</li>
+<li><code>ApexInboundCache.get(oTicket)</code> does the matching <code>apex_inbound_cache.py:56-94</code>:<ul>
+<li>Queries <code>SELECT * FROM ApexInboundLog ORDER BY bTimestamp</code> — <strong>iterates ALL entries across all POS instances</strong> (cross-POS matching is already supported)</li>
+<li>For each cached row, parses its XML and compares against the new loadout ticket on <strong>configurable match fields</strong> (<code>self._rgsMatch</code>)</li>
+<li>First match wins; row is <strong>removed from <code>ApexInboundLog</code></strong> (consumed once)</li>
+<li>Returns the cache entry with the tare-side JPG paths</li>
+</ul>
+</li>
+<li>Tare JPGs are merged with loadout JPGs into one combined PDF <code>:1044-1054</code></li>
+</ol>
+<h3>5b.4 Expiration (<code>_expireInboundCache :869-877</code> + <code>ApexInboundCache.expire :96-128</code>)</h3>
+<ul>
+<li>Runs every 600 seconds (<code>INBOUND_EXPIRE_SLEEP</code>) from the main loop via <code>_handleWaitingState :598</code></li>
+<li>For any cached inbound older than <code>self._bTimeout</code> seconds (from <code>bTimeoutInbound * 60</code>), generates a <code>REPORT_INBOUND</code> exception report (&quot;this tare never got matched to a loadout, here are the orphan images&quot;)</li>
+<li>Cleans up the MariaDB row + JPG files</li>
+</ul>
+<h3>5b.5 The exact variables that drive this — the table to copy from for any new provider</h3>
+<p>For wiring a new ticket provider (e.g., FastWeigh) into this mechanism:</p>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Variable</th>
+<th>Where (config)</th>
+<th>Where (code)</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Matching key</strong> (which tare matches which loadout)</td>
+<td><code>sMatchInbound</code> (CSV of field names, e.g. <code>&quot;truck,autoid&quot;</code>)</td>
+<td><code>PosType19.java:40</code> → DB <code>POS.sMatchInbound</code> → <code>oPos[&#39;sMatchInbound&#39;]</code></td>
+<td>parsed at <code>thread_truck_transaction.py:235-238</code>; passed to <code>ApexInboundCache(rgsMatch=...)</code> <code>:253</code>; used by <code>ApexInboundCache.get()</code> <code>apex_inbound_cache.py:74-77</code></td>
+<td>empty (cache disabled)</td>
+<td>For FastWeigh, this would be the field name(s) FastWeigh exposes for cross-ticket truck identity — e.g. <code>&quot;truck_id&quot;</code>, <code>&quot;slip_number&quot;</code>, <code>&quot;vehicle_id&quot;</code>. <strong>Confirmed by FastWeigh sales call.</strong></td>
+</tr>
+<tr>
+<td><strong>Tare-vs-loadout discriminator</strong></td>
+<td>Hardcoded as <code>bTicket == &#39;0&#39;</code> (APEX convention)</td>
+<td>not configurable today</td>
+<td><code>thread_truck_transaction.py:831</code></td>
+<td>n/a</td>
+<td>For FastWeigh, needs to become configurable or rule-based. Possible discriminators: (a) FastWeigh also emits <code>ticket_number == &#39;0&#39;</code> for tares (existing code works as-is), (b) a <code>type</code>/<code>weighing_step</code> field, (c) <code>gross_weight == 0</code>, (d) a custom UDF Jahna can set in FastWeigh templates. <strong>Sales-call dependency.</strong></td>
+</tr>
+<tr>
+<td><strong>Cache holding timeout</strong></td>
+<td><code>bTimeoutInbound</code> (minutes)</td>
+<td><code>PosType19.java:39, 82</code></td>
+<td><code>thread_truck_transaction.py:232</code> → <code>ApexInboundCache(bTimeout=...)</code> <code>:253</code> → <code>expire() :112</code></td>
+<td>-1 (disabled)</td>
+<td>Configurable per POS. <strong>No UI hard cap I could find</strong> (unlike <code>bHungTransTimeout</code>&#39;s 60-min ceiling). Typical Jahna cycle 15-30 min, set to 60-90 min comfortable.</td>
+</tr>
+<tr>
+<td><strong>Cache cycle frequency</strong></td>
+<td><code>INBOUND_EXPIRE_SLEEP</code></td>
+<td>constant in code</td>
+<td><code>thread_truck_transaction.py:43</code></td>
+<td>600 seconds (10 min)</td>
+<td>How often to scan for expired inbound entries. Constant, not config.</td>
+</tr>
+<tr>
+<td><strong>Image capture during tare</strong></td>
+<td><code>sImagesInbound</code> (cam<del>event</del>overlay format)</td>
+<td><code>PosType19.java:37</code></td>
+<td>parsed in <code>_parseTTconfigPosType19 :384-400</code>; populates <code>rgoInboundUseImage</code></td>
+<td>empty</td>
+<td>Which cameras snapshot during inbound, and on which event</td>
+</tr>
+<tr>
+<td><strong>Cache filename pattern</strong></td>
+<td><code>sFileFormatInbound</code></td>
+<td><code>PosType19.java:41</code></td>
+<td><code>thread_truck_transaction.py:233</code> → <code>ApexInboundCache._sFileFormat</code></td>
+<td>empty</td>
+<td>Pattern used when generating exception-report PDFs for expired entries</td>
+</tr>
+<tr>
+<td><strong>Storage location</strong></td>
+<td><code>GB[&#39;inbounddir&#39;]</code> (filesystem) + <code>ApexInboundLog</code> (MariaDB)</td>
+<td>global Python config</td>
+<td>image: <code>:896</code>; DB: <code>apex_inbound_cache.py:151-160</code></td>
+<td>n/a</td>
+<td>Image filename pattern: <code>Inbound.{POS_id}.{timestamp}.{cam}i.jpg</code></td>
+</tr>
+<tr>
+<td><strong>Per-provider isolation</strong></td>
+<td>DOES NOT EXIST TODAY</td>
+<td>—</td>
+<td>—</td>
+<td>n/a</td>
+<td>The column you&#39;d ADD (<code>sProvider</code>) to disambiguate APEX vs FastWeigh entries in the same table. See § 5b.7</td>
+</tr>
+</tbody></table>
+<h3>5b.6 What the cache currently holds — and what it does NOT hold</h3>
+<table>
+<thead>
+<tr>
+<th>Held by cache today</th>
+<th>NOT held by cache today</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tare-side camera images (filesystem + DB pointer)</td>
+<td>Tare-side <code>cloudEvents[]</code> list (scale events, alerts, etc.)</td>
+</tr>
+<tr>
+<td>Tare-side ticket XML (the full APEX XML payload)</td>
+<td>Tare-side <code>Measurement_Recorded</code> event</td>
+</tr>
+<tr>
+<td>Timestamp for expiration</td>
+<td>Tare-side <code>Permit_Validated</code> event + PDF</td>
+</tr>
+<tr>
+<td>Match-field values (extracted from XML on demand)</td>
+<td>A serialized TruckTransaction object</td>
+</tr>
+</tbody></table>
+<p><strong>Implication:</strong> to extend this to &quot;hold the full tare-side transaction in memory and bundle into the loadout cloud upload,&quot; we need to extend WHAT gets cached (and how), not invent the caching mechanism itself.</p>
+<h3>5b.7 Finalized design — paired-cloud-upload extension</h3>
+<p><strong>Status:</strong> Design approved 2026-05-22. Documented here as the locked design. Implementation pending quote acceptance.</p>
+<h4>5b.7.1 Three config flags on PosType19</h4>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Type</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>fPairTareLoadout</code></td>
+<td>boolean</td>
+<td><strong><code>false</code></strong></td>
+<td>Master switch. When <code>false</code>, code path is exactly today&#39;s behavior (per-cycle cloud upload, ApexInboundCache for local PDF combining). When <code>true</code>, paired mode: suppress tare-side <code>cloudAdd</code>, cache full TruckTransaction via extended ApexInboundCache, merge into loadout upload, fire ONE <code>cloudAdd</code> with combined events + images + measurement + permit.</td>
+</tr>
+<tr>
+<td><code>sTareField</code></td>
+<td>string</td>
+<td><code>&quot;bTicket&quot;</code></td>
+<td>Which ticket field identifies a tare. APEX convention is <code>bTicket</code>. FastWeigh would be whatever they expose (<code>type</code>, <code>weighing_step</code>, <code>is_tare</code>, etc.) — confirmed via FastWeigh sales call.</td>
+</tr>
+<tr>
+<td><code>sTareValue</code></td>
+<td>string</td>
+<td><code>&quot;0&quot;</code></td>
+<td>The value that field holds on a tare ticket. APEX prints <code>bTicket == &quot;0&quot;</code> for tares. FastWeigh might emit <code>&quot;tare&quot;</code> or <code>&quot;true&quot;</code> or <code>&quot;1&quot;</code>.</td>
+</tr>
+</tbody></table>
+<p><strong>Why field+value instead of an eval()-able expression:</strong> operator-friendly in dview UI, no security risk from eval, no Python-side parsing of operator config.</p>
+<h4>5b.7.2 Behavior matrix</h4>
+<table>
+<thead>
+<tr>
+<th><code>fPairTareLoadout</code></th>
+<th>Discriminator</th>
+<th>Provider</th>
+<th>Behavior</th>
+<th>Cloud transactions per truck visit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>false</code> (default)</td>
+<td><code>bTicket</code> / <code>0</code> (default)</td>
+<td>APEX</td>
+<td><strong>No change from today.</strong> Tare ticket → local image cache via <code>ApexInboundLog</code>, cloud sees tare-only transaction. Loadout ticket → local PDF merges cached tare images, cloud sees loadout-only transaction.</td>
+<td><strong>2</strong></td>
+</tr>
+<tr>
+<td><code>false</code></td>
+<td><code>type</code> / <code>tare</code> (configured)</td>
+<td>FastWeigh</td>
+<td>Same flow as APEX, but uses configured field to spot tares. Cache still works for local PDF combining if <code>fInboundEnable</code> is true.</td>
+<td><strong>2</strong></td>
+</tr>
+<tr>
+<td><strong><code>true</code></strong> (Jahna config)</td>
+<td><code>type</code> / <code>tare</code> (FastWeigh)</td>
+<td>FastWeigh</td>
+<td><strong>Paired flow.</strong> Tare-side <code>cloudAdd</code> SUPPRESSED. Full TruckTransaction cached in extended <code>ApexInboundLog</code> (<code>sPairedState BLOB</code>). Loadout-side merges via existing <code>TruckTransaction.merge()</code> (<a href=":127"><code>thread_truck_transaction.py:127</code></a>), fires ONE <code>cloudAdd</code> with combined events + images + measurement + permit. Local PDF still combines all images (existing flow uses <code>truck.imgs</code>, which after merge contains tare+loadout images).</td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td><code>true</code></td>
+<td>(also works for APEX-paired)</td>
+<td>APEX</td>
+<td>If an APEX customer ever wants paired mode, same flag, default field+value works. Not asked for today but free option.</td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td><code>true</code> + tare arrives, loadout never does</td>
+<td>any</td>
+<td>any</td>
+<td>Expiration sweeper fires at <code>bTimeoutInbound</code>: unpickle held paired-state, append <code>Alert_TareWithoutLoadout</code> event, fire <code>cloudAdd</code> with tare-only data + alert. <strong>No data silently lost.</strong></td>
+<td><strong>1 (tare-only + alert)</strong></td>
+</tr>
+<tr>
+<td><code>true</code> + loadout arrives without matching tare</td>
+<td>any</td>
+<td>any</td>
+<td>Treat as orphan loadout: cloud upload proceeds with loadout-only event stream + <code>Alert_LoadoutWithoutTare</code> event. <strong>Visible to operator.</strong></td>
+<td><strong>1 (loadout-only + alert)</strong></td>
+</tr>
+</tbody></table>
+<h4>5b.7.3 Schema migration</h4>
+<p>Non-breaking ALTER TABLE — existing APEX customers see no change:</p>
+<pre><code class="language-sql">ALTER TABLE ApexInboundLog
+  ADD COLUMN sProvider     VARCHAR(32) NOT NULL DEFAULT &#39;apex&#39; AFTER bID,
+  ADD COLUMN sPairedState  LONGBLOB    NULL;
+
+CREATE INDEX idx_apexinboundlog_provider
+  ON ApexInboundLog(sProvider, bID, dTimestamp);
+</code></pre>
+<ul>
+<li>Existing rows get <code>sProvider=&#39;apex&#39;</code>, <code>sPairedState=NULL</code>. No data migration needed.</li>
+<li><code>sPairedState</code> holds the pickled TruckTransaction in paired mode; left NULL in legacy mode.</li>
+<li>Schema lives in <code>rda-db/src/</code> as a new migration script. See § 5b.9 for the install/update workflow.</li>
+</ul>
+<h4>5b.7.4 Code surgery in <code>apex_inbound_cache.py</code></h4>
+<ul>
+<li>Constructor takes new <code>sProvider</code> parameter (default <code>&quot;apex&quot;</code> for back-compat).</li>
+<li><code>_addDatabaseInfo</code> writes the <code>sProvider</code> column.</li>
+<li><code>get()</code> and <code>expire()</code> filter <code>WHERE sProvider = %s</code> so APEX rows never match against FastWeigh rows.</li>
+<li>New methods: <code>addPaired(provider, key, paired_pickle, timestamp)</code> to write <code>sPairedState</code>, <code>getPaired(provider, ticket)</code> to retrieve + unpickle, called from the loadout side.</li>
+</ul>
+<h4>5b.7.5 Code surgery in <code>thread_truck_transaction.py</code></h4>
+<p>Three checkpoints where the new flags are consulted, all in <code>_handleFinishedState</code> (<code>:693</code>):</p>
+<pre><code class="language-python">def _handleFinishedState(self, truck):
+    # ... existing: minimum-duration, image grab, theft, measurement, permit ...
+
+    if self.fPairTareLoadout:
+        is_tare = self._isTareTicket(truck)        # uses sTareField/sTareValue
+
+        if is_tare:
+            # Paired tare: suppress cloudAdd, cache full state
+            self._cachePairedTareTruck(truck)     # pickle into ApexInboundLog.sPairedState
+            self._clearTruck(truck)
+            return STATE_WAITING
+
+        # Paired loadout: look up held tare, merge if found
+        held = self._getHeldPairedTare(truck.ticket)
+        if held is not None:
+            truck.merge(held)                      # existing TruckTransaction.merge :127
+        else:
+            truck.addEvent(Alert_LoadoutWithoutTare())
+
+    # Always: fire cloudAdd (now with merged data if paired+loadout)
+    self.cloudAdd(self.bID, truck.cloudEvents, truck.imgs)
+
+    if truck.hasTicket():
+        if self.fInboundEnable and self._isTareTicket(truck) and not self.fPairTareLoadout:
+            self._saveInboundTicket(truck)         # legacy mode only
+        else:
+            self._saveStandardTicket(truck)        # builds local PDF (merged imgs in paired mode)
+
+    self._clearTruck(truck)
+    return STATE_WAITING
+</code></pre>
+<p>Helper additions:</p>
+<ul>
+<li><code>_isTareTicket(truck)</code> — replaces the hardcoded <code>bTicket == &#39;0&#39;</code> check at current <code>:831</code>. Uses <code>sTareField</code>/<code>sTareValue</code> config.</li>
+<li><code>_cachePairedTareTruck(truck)</code> — pickle the TruckTransaction, call <code>oInboundCache.addPaired(...)</code>.</li>
+<li><code>_getHeldPairedTare(ticket)</code> — call <code>oInboundCache.getPaired(...)</code>, return unpickled TruckTransaction or None.</li>
+</ul>
+<h4>5b.7.6 New event classes (small)</h4>
+<p>Two new alerts so the upload payload tells the operator/portal when pairing went sideways:</p>
+<pre><code class="language-python">class Alert_TareWithoutLoadout(Event):
+    def __init__(self):
+        Event.__init__(self, &#39;AlertTareWithoutLoadout&#39;)
+
+class Alert_LoadoutWithoutTare(Event):
+    def __init__(self):
+        Event.__init__(self, &#39;AlertLoadoutWithoutTare&#39;)
+</code></pre>
+<p>Both go in <code>event.py</code> next to the existing alert classes. Cloud-side handlers in <code>cloudapi/app/controllers/scalewatcher/transaction.js</code> need to be aware (small mapping addition like the existing <code>Alert_*</code> mappings at indices 10-11).</p>
+<h4>5b.7.7 Event-phase tagging in the merged upload — REVISED</h4>
+<p>So the cloud can distinguish tare-side from loadout-side scale events in the paired payload:</p>
+<ul>
+<li><strong>Previously recommended (REJECTED 2026-05-23):</strong> repurpose <code>Event.shipmentID</code>. We tried it (commit <code>57c21f04d</code>) and removed it (commit <code>9d3d18b43</code>).  Two reasons it didn&#39;t work as planned:<ul>
+<li><code>thread_cloud_sw._prepareEvents</code> actually only serializes <code>timestamp</code>/<code>name</code>/<code>data</code>/<code>imgs</code> into the upload JSON; <code>shipmentID</code> was NOT included, so the cloud never saw the tag.  The &quot;zero cloud schema change&quot; framing assumed serialization that wasn&#39;t there.</li>
+<li><code>Event.shipmentID</code> is Ryan&#39;s PSCL infrastructure (used by <code>_getTruckForEvent</code> to group events into truck transactions by shipment).  Overloading it for a paired-mode phase tag put a non-PSCL value into a field PSCL POS code reads.</li>
+</ul>
+</li>
+<li><strong>Current state:</strong> events ride into the cloud unmodified.  Phase is implicit from each event&#39;s own ticket data (a <code>Ticket_Received</code> whose <code>number==sTareValue</code> is the tare; anything else is the loadout).  Cloud-side code that needs to render tare/loadout distinction can already do it from the per-event payload.</li>
+<li><strong>If a future feature genuinely needs an explicit per-event phase tag</strong>, add a NEW field on Event (e.g. <code>phase</code>) — don&#39;t overload <code>shipmentID</code> a second time.  That work lands as part of the option-C <code>paired.tare</code> sub-document upload shape, not as a one-line shim.</li>
+<li><strong>DO NOT</strong> invent new event classes like <code>TareTicketReceived</code> and <code>LoadoutTicketReceived</code>. The events themselves are identical (a <code>Scale_TruckOn</code> in tare phase has the same shape as <code>Scale_TruckOn</code> in loadout phase). The phase is metadata about WHEN, not a new event type.</li>
+</ul>
+<h4>5b.7.8 Reuse <code>ApexInboundLog</code> table — do NOT rename</h4>
+<p>The name is historical baggage from when APEX was the only ticket provider. Don&#39;t rename — the migration cost is real, the API references are stable, and the name doesn&#39;t break anything. One ALTER TABLE adds <code>sProvider</code> and <code>sPairedState</code>; existing code references stay intact.</p>
+<p>If anyone finds the name confusing in three years, add a view alias (<code>CREATE VIEW InboundCache AS SELECT * FROM ApexInboundLog</code>) — free, breaks nothing, lets new code use the friendlier name without disrupting old code.</p>
+<hr>
+<h3>5b.8 dview / Java side work (REQUIRED — not optional)</h3>
+<p>Any new PosType19 config field requires corresponding dview Java + UI + test-API coverage. Specifically:</p>
+<h4>5b.8.1 PosType19.java config schema additions</h4>
+<p>Three new private fields + getters/setters in <code>dview/src/net/dividia/dview/backend/config/PosType19.java</code>:</p>
+<pre><code class="language-java">private boolean fPairTareLoadout;  // default false
+private String  sTareField;          // default &quot;bTicket&quot;
+private String  sTareValue;          // default &quot;0&quot;
+</code></pre>
+<p>Add to the constructor defaults block (<code>:53-92</code>), the <code>load()</code> deserializer (<code>:108-176</code>), the <code>freeze()</code> serializer (<code>:181-200</code>), and corresponding <code>is/set</code> accessors.</p>
+<h4>5b.8.2 dview ApexDialog UI additions</h4>
+<p><code>dview/src/net/dividia/dview/setup/pos/ApexDialog.java</code> (where POSType19 config is edited):</p>
+<ul>
+<li><code>JCheckBox btnPairedTareLoadout</code> with label &quot;Bundle Tare + Loadout into single cloud transaction (Dividia admin only)&quot;</li>
+<li><code>JTextField txtTareField</code> with label &quot;Tare ticket discriminator field&quot; (default &quot;bTicket&quot;)</li>
+<li><code>JTextField txtTareValue</code> with label &quot;Tare ticket discriminator value&quot; (default &quot;0&quot;)</li>
+<li>Wire <code>TestId.on(...)</code> per <code>dview-java.md</code> rules so test-API can exercise these</li>
+<li>Wire <code>PosController.java</code> getter/setter passthrough (<code>oApexDialog.checkPairTareLoadout()</code>, etc.) — mirror the existing <code>getHungTransTimeout()</code> pattern at <code>:896, 1763, 3344, 4439</code></li>
+<li>Add the <code>pairTareLoadout</code> field to the <code>oPosModel.add(...)</code> parameter list at <code>:916</code> and <code>oPos.set...</code> at <code>:3417, 4439</code></li>
+<li>Update the &quot;dirty check&quot; at <code>:5642</code> so changing this flag triggers the save prompt</li>
+</ul>
+<h4>5b.8.3 UI gating — visible only when scalewatcher cloud is available</h4>
+<p>The new pairing config must NOT appear if the NVR can&#39;t talk to cloud anyway. Two gates:</p>
+<ol>
+<li><strong>Feature gate (dvs key):</strong> check <code>oGeneralModel.checkHasFeature(&quot;jws_cloud&quot;)</code> per <code>PosController.java:353</code>. If false, all three new fields are hidden — pairing makes no sense without cloud upload.</li>
+<li><strong>Cloud-scalewatcher enable gate:</strong> the gate file <code>/root/.recorder_cloudsw</code> (<code>thread_main.py:37</code>) must exist for ThreadCloudSW to start at all. If it doesn&#39;t exist, the whole cloud upload path is dead and pairing has nothing to merge into. Expose this state via a backend RPC (rda-backend can stat the file) and hide the pairing config if cloud is currently disabled at runtime.</li>
+</ol>
+<p>If neither gate is satisfied, the three new fields don&#39;t render. Operator/Dividia admin sees the POSType19 setup screen as today.</p>
+<h4>5b.8.4 Privilege gate — Dividia admin only, no operator self-service</h4>
+<p><strong><code>fPairTareLoadout</code> must NOT be flippable by site operators.</strong> A curious operator clicking it on/off mid-shift would cause held-tare records to either dangle or get force-uploaded prematurely, generating support traffic.</p>
+<p>Pattern to apply: the dview ApexDialog renders the <code>fPairTareLoadout</code> checkbox as <strong>read-only</strong> (showing &quot;Active&quot; / &quot;Inactive&quot; status) for non-Dividia users. Only when the logged-in user is in the Dividia admin role does the checkbox become editable. The pattern at <code>CameraController.java:1990</code> (&quot;Lock local browser to dividia user or Administrators&quot;) is the precedent.</p>
+<p>Concretely:</p>
+<ul>
+<li><code>oApexDialog.setPairTareLoadoutEditable(boolean)</code> — toggles the JCheckBox <code>setEnabled()</code> state</li>
+<li>Called from <code>PosController.java</code> after checking the user&#39;s role via <code>oGeneralModel.isUserDividia()</code> or equivalent (verify the exact method name in dview&#39;s user model)</li>
+<li>The <code>sTareField</code> and <code>sTareValue</code> text fields follow the same pattern — operator-readable, Dividia-editable</li>
+</ul>
+<h4>5b.8.5 Test-API coverage (per <code>dview-java.md</code> rules)</h4>
+<ul>
+<li><code>TestId.on(btnPairedTareLoadout, &quot;setup.pos.apex.paired-enable&quot;)</code> (and matching IDs for the two text fields)</li>
+<li>Add a section to <code>dview/tests/test-api.sh</code> exercising the visibility gating (with/without <code>jws_cloud</code> feature, with/without <code>/root/.recorder_cloudsw</code>, with/without Dividia admin role)</li>
+<li>Add a flow under <code>dview/tests/examples/</code> for &quot;configure POSType19 in paired mode&quot; — covers the whole save→reload→re-edit cycle</li>
+</ul>
+<hr>
+<h3>5b.9 Migration mechanism — wire into existing <code>rda-db --update</code></h3>
+<p>The <code>rda-db</code> package already has a battle-tested migration system. <code>rda-db --update</code> is invoked automatically on RPM install (<code>rda-db/rda-db.spec:209</code>) and on RPM upgrade (<code>:224</code>). Migration files live in <code>rda-db/src/</code> as Python scripts.</p>
+<h4>5b.9.1 New migration script</h4>
+<p>Add a numbered migration script in <code>rda-db/src/</code> following the existing pattern (see <code>rda-db/tests/test_migrations.py</code> for the conventions — sortable script names, idempotent ALTERs). The script performs the <code>ALTER TABLE ApexInboundLog</code> from § 5b.7.3.</p>
+<h4>5b.9.2 Install-time behavior</h4>
+<ul>
+<li><strong>Fresh install:</strong> the migration runs as part of <code>rda-db --update</code> during RPM post-install. <code>ApexInboundLog</code> is created with the new columns.</li>
+<li><strong>Existing customer upgrade:</strong> RPM upgrade triggers <code>rda-db --update</code> automatically (per <code>rda-db.spec:224</code>). Existing rows get <code>sProvider=&#39;apex&#39;</code>, <code>sPairedState=NULL</code>. Existing APEX flow is unchanged.</li>
+<li><strong>Docker deployment:</strong> the <code>docker/test-build.sh</code> pipeline runs <code>rda-db --update</code> against the test MariaDB; migration must pass that step before the build is green.</li>
+</ul>
+<h4>5b.9.3 Field deployment / hotfix</h4>
+<p>For sites that need this faster than the next RPM release, the migration can be run manually via <code>/usr/local/bin/rda-db --update</code> — same command, no special flags. Operator runs once after deploying the new code.</p>
+<h4>5b.9.4 Rollback safety</h4>
+<p>Schema is forward-compatible: old code reading the new schema sees the same columns it always saw (the new columns are nullable). New code reading the old schema would crash on <code>sPairedState</code> access — handle via a feature-detection helper in <code>apex_inbound_cache.py</code> that probes for the column on init and disables paired mode if absent. Belt-and-suspenders.</p>
+<hr>
+<h3>5b.10 Related future enhancement — cloud-scalewatcher enable toggle in dview</h3>
+<p><strong>Out of scope for this pairing work but worth capturing.</strong> Currently the only way to enable cloud ScaleWatcher on an NVR is for a Dividia admin to <code>touch /root/.recorder_cloudsw</code> (and the compose variant) via SSH. Two operational problems:</p>
+<ol>
+<li><strong>Onboarding friction.</strong> Dividia support staff must SSH into every new install to enable cloud scalewatcher. Easy to forget on busy days.</li>
+<li><strong>Cleanup gap on cloud-access revocation.</strong> If a customer&#39;s cloud access is revoked (billing, contract change, etc.), the file is supposed to be removed. If forgotten, the recorder keeps trying to upload to an endpoint that rejects it.</li>
+</ol>
+<p><strong>Proposed:</strong> add a toggle to dview Setup → General → &quot;Cloud ScaleWatcher&quot; that creates / removes <code>/root/.recorder_cloudsw</code> via an rda-backend RPC. Gated by:</p>
+<ol>
+<li><strong>dvs key feature gate:</strong> only visible if the system has the <code>jws_apex</code> (or whatever the actual ScaleWatcher feature flag is) feature in their dvs key</li>
+<li><strong>Dividia-admin-only:</strong> only editable by the Dividia admin user (same pattern as § 5b.8.4)</li>
+</ol>
+<p>This would let Dividia admins enable/disable cloud scalewatcher through the same dview Setup screen they use for everything else, no SSH required. Visible to regular operators as informational (status indicator) but not togglable.</p>
+<p><strong>Not part of pairing work — but the implementation is similar enough (privilege gating, feature gating, gate-file management) that it could share helpers if scheduled in the same release.</strong></p>
+<hr>
+<h2>6. The two physical scale layouts</h2>
+<h3>6a. Single combined scale (one physical scale, truck crosses twice)</h3>
+<pre><code>Truck visit:
+  09:00:00  Scale_TruckEntering            (tare)
+  09:00:08  Scale_TruckOn(42000)           (tare weight = 42K)
+  09:00:30  [operator runs AxlEye + permit QR + DataBridge entry]
+  09:00:45  Scale_TruckLeaving(42000, 42000)
+            [truck drives to loading circle, gets loaded, returns]
+  09:18:30  Scale_TruckEntering            (loaded)
+  09:18:36  Scale_TruckOn(76200)           (now-loaded weight)
+  09:18:55  Scale_TruckLeaving(42000, 76200)  [tare is from this scale&#39;s persistent state OR is 0]
+            [FastWeigh ticket arrives some time later via webhook]
+</code></pre>
+<p><strong>How the current code handles this:</strong></p>
+<ul>
+<li>ONE POSType19 instance is configured for this scale.</li>
+<li>ONE scale reader emits four events for the tare cycle.</li>
+<li>The TruckTransaction enters PROCESSING on whatever <code>cStartTransaction</code> is configured (default <code>Ticket_Received</code> per <code>:185, 344</code> if not overridden, or <code>Scale_TruckEntering</code> if explicitly configured).</li>
+<li>If <code>cStartTransaction = Scale_TruckEntering</code> and <code>cFinishTransaction = Scale_TruckLeaving</code>, the tare cycle becomes a self-contained transaction. <strong>It uploads on tare-leaving.</strong></li>
+<li>Truck leaves, comes back. ANOTHER <code>Scale_TruckEntering</code> arrives. Since the prior transaction is FINISHED (already uploaded and cleared) — a new TruckTransaction is created. <strong>Another self-contained transaction uploads on loaded-leaving.</strong></li>
+<li><strong>Result: TWO separate cloud transactions per truck visit.</strong> No pairing.</li>
+<li>If <code>cStartTransaction = Ticket_Received</code> and <code>cFinishTransaction = Ticket_Received</code> (default), then only the ticket triggers a transaction at all — scale events get captured INTO the transaction only if a ticket arrives while the truck is on the scale.</li>
+</ul>
+<p><strong>The current code has no &quot;wait for the SAME truck to come back&quot; logic.</strong> It cannot tell that the 09:18 entering event is the same truck as the 09:00 entering event.</p>
+<h3>6b. Separated tare and loadout scales (different physical scales)</h3>
+<pre><code>Truck visit:
+  09:00:00  [tare scale]   Scale_TruckEntering
+  09:00:08  [tare scale]   Scale_TruckOn(42000)
+  09:00:45  [tare scale]   Scale_TruckLeaving(42000, 42000)
+            [truck drives to loading circle, gets loaded]
+  09:18:30  [loadout scale] Scale_TruckEntering
+  09:18:36  [loadout scale] Scale_TruckOn(76200)
+  09:18:55  [loadout scale] Scale_TruckLeaving(0, 76200)  [no prior tare on this scale]
+            [FastWeigh ticket arrives via webhook]
+</code></pre>
+<p><strong>How the current code handles this:</strong></p>
+<ul>
+<li>TWO POSType19 instances are configured — one per scale, distinct names (&quot;Tare Scale 1&quot;, &quot;Loaded Scale 1&quot;), distinct <code>bID</code>s, distinct ports.</li>
+<li>Each has its own <code>ThreadTruckTransaction</code> thread, own scale reader, own <code>truck_list</code>, own <code>qEvent</code>.</li>
+<li><strong>They do not share state.</strong> No cross-thread communication. No shared truck object.</li>
+<li>Tare scale&#39;s POS instance emits ONE transaction (tare-side events + maybe alerts).</li>
+<li>Loadout scale&#39;s POS instance emits a SEPARATE transaction (loadout-side events).</li>
+<li>The FastWeigh ticket, when it arrives, goes to BOTH instances (broadcast — see § 4). Whichever one is in PROCESSING at that moment captures it. With the loadout scale in PROCESSING when the ticket arrives, the loadout transaction gets the ticket.</li>
+<li><strong>Result: TWO separate cloud transactions, with the ticket attached to one of them (usually the loadout side).</strong> No pairing.</li>
+</ul>
+<p>In addition: the design doc <code>fastweigh-integration.md</code> (now superseded) proposed linking by LPN — that&#39;s the LPR-based correlation, off the table.</p>
+<h3>6c. Why the current code emits two transactions either way</h3>
+<p>The state machine is fundamentally <strong>one cycle = one transaction</strong>. A &quot;cycle&quot; is defined by the configured start event arriving, events accumulating, and the configured finish event arriving. The <code>cStartTransaction</code>/<code>cFinishTransaction</code> config is per-direction (Inbound/Outbound), but POSType19 never switches direction (<code>cInboundDirectionTrigger = None</code>, <code>:336, 363</code>), so it always uses the outbound triggers. Even if the inbound triggers were activated, the state machine can only hold ONE cycle at a time per POS — there&#39;s no &quot;phase 1 / phase 2&quot; within a transaction.</p>
+<hr>
+<h2>7. What this CAN do (without code changes) — the achievable pairing-adjacent things</h2>
+<p>Given the existing primitives, you CAN do these things today without code surgery:</p>
+<ol>
+<li><strong>Capture all scale events + the ticket into one transaction, when the truck is on a single scale and the ticket arrives within <code>bHungTransTimeout</code>.</strong> Configure <code>cStartTransaction = Scale_TruckEntering</code>, <code>cFinishTransaction = Ticket_Received</code>. Truck enters → scale events accumulate → ticket arrives → upload fires with everything. If the ticket arrives late, the timer + hung-timeout protect against an infinitely-open transaction.</li>
+<li><strong>Capture multi-event sequences within one cycle.</strong> Whatever events arrive between start and finish get bundled. Scale + valve + LPR (if used) + measurement + permit all land in one upload.</li>
+<li><strong>Wait for a late ticket</strong> via <code>bTicketPrintDelay</code> (CRH-specific workaround, <code>:286, 561-590</code>). After the configured finish event, the code waits up to <code>bTicketPrintDelay</code> seconds for a ticket. This is a different mechanism from the bundle, but the primitive of &quot;delay finishing to wait for an event&quot; exists.</li>
+<li><strong>Force-finish on errors</strong> so transient scale/valve issues don&#39;t leave a transaction hung.</li>
+<li><strong>Survive a recorder restart</strong> mid-transaction (state pickling, § 3f).</li>
+</ol>
+<p><strong>What this CANNOT do without code changes:</strong> wait for an event from a <em>different</em> POS instance, or for a tare cycle to &quot;pair&quot; with a loadout cycle that happens 5 minutes to several hours later, or attach a &quot;phase&quot; tag to events so the cloud can tell which scale fired which.</p>
+<hr>
+<h2>8. What CANNOT be done without code changes — the limitations</h2>
+<p>In order of how blocking each is for the paired-transaction goal:</p>
+<h3>8a. POSType19 never switches direction at runtime (HARD LIMITATION)</h3>
+<p><code>_parseTTconfigPosType19</code> parses <code>sStartTransactionInbound</code> and <code>sFinishTransactionInbound</code> from config (<code>:342-349</code>) but the only thing that would switch the active direction is <code>cInboundDirectionTrigger</code> — and that is explicitly hardcoded to <code>None</code> for POSType19 (<code>:336</code>, comment at <code>:361-363</code>: <em>&quot;Disabling this for now until we rewrite to configure Type19 TruckTransaction directly&quot;</em>). The inbound config is parsed-but-dead-code.</p>
+<p>Every transaction therefore uses the Outbound triggers (set in <code>_setDirection</code> at <code>:1272-1284</code> and used by default in <code>_getTruckForEvent</code> at <code>:1992, 2007</code>).</p>
+<p><strong>The infrastructure for inbound/outbound is present and parsed — just not wired up for POSType19.</strong></p>
+<h3>8b. POSType19 is single-truck-per-instance (HARD LIMITATION for the held-cycle model)</h3>
+<p><code>_getTruckForEvent</code> (<code>:1983-2012</code>) always returns the single truck in <code>truck_list[sName]</code> for POSType19 (since <code>shipmentID</code> is always <code>&quot;0&quot;</code>). If a tare transaction is in PROCESSING and a NEW <code>Scale_TruckEntering</code> arrives, the duplicate-start force-finish path triggers (<code>:637-643</code>) — the current transaction is closed and a new one starts.</p>
+<p>This means a tare cycle and a loadout cycle, even on the same scale, cannot coexist as ONE transaction.</p>
+<p>PSCL has a multi-truck workaround via <code>shipmentID</code>, in a separate thread (<code>thread_truck_transaction_pscl.py</code>). That code path exists but is PSCL-specific.</p>
+<h3>8c. Two POS instances have no shared state (HARD LIMITATION for separated scales)</h3>
+<p>Tare scale POS and loadout scale POS run in separate threads with separate <code>truck_list</code>s. Nothing in the current code joins them. Even if you fixed (8a) and (8b), a tare-scale TruckTransaction and a loadout-scale TruckTransaction are different objects in different threads.</p>
+<h3>8d. Cloud-ticket routing is broadcast, not per-port targeted (MEDIUM)</h3>
+<p><code>thread_cloud_websocket.py:82-87</code> ignores the <code>port</code> field that cloudapi sends. Every POSType19 sees every ticket. This is workable in the single-POS case but creates ambiguity in the multi-POS case.</p>
+<p>CloudAPI side (<code>cloudapi/app/controllers/scalewatcher/fastweigh.js:56-74</code>) already includes the port field — only the NVR side needs to consume it.</p>
+<h3>8e. No per-event direction/phase tagging (MEDIUM — UPDATED 2026-05-23)</h3>
+<p>When the upload payload is built (<code>thread_cloud_sw.py:_prepareEvents</code>), every event in <code>cloudEvents[]</code> is serialized identically (<code>timestamp</code>, <code>name</code>, <code>data</code>, <code>imgs</code>). There&#39;s no field saying &quot;this scale event came from the tare cycle&quot; vs &quot;this scale event came from the loadout cycle&quot;.</p>
+<p>The current paired-mode upload contains a merged list of tare-side + loadout-side events.  The cloud disambiguates by reading each event&#39;s own ticket data — the tare&#39;s <code>Ticket_Received</code> has <code>number==sTareValue</code>; the loadout&#39;s doesn&#39;t.  Scale events that don&#39;t carry ticket data have to be associated by timestamp + position relative to the ticket events.</p>
+<p><strong>An earlier attempt</strong> (commits <code>57c21f04d</code> → <code>9d3d18b43</code>) used <code>Event.shipmentID</code> as a phase tag.  That was removed — see § 5b.7.7 — because the cloud upload never read the field and it conflicted with PSCL&#39;s legitimate use.</p>
+<p><strong>The clean fix</strong> if/when a portal feature needs explicit phase tagging: either a new <code>Event.phase</code> attribute that DOES get serialized, OR the option-C <code>paired.tare</code> sub-document upload shape.  Not by overloading <code>shipmentID</code> again.</p>
+<h3>8f. <code>bHungTransTimeout</code> is capped at 60 minutes in current UI (SOFT)</h3>
+<p><code>ApexDialog.java:103</code>: <code>JSpinner(new SpinnerNumberModel(60, 0, 60, 1))</code> — max value is <strong>60 minutes</strong>. The Python side multiplies by 60 to get seconds (<code>thread_truck_transaction.py:292</code>) and has no inherent ceiling. The UI cap is the constraint.</p>
+<p>For a paired tare→loadout cycle, typical times might be 15-30 minutes (truck drives to loading circle, loads, returns). 60 minutes is workable for the normal case but tight for any edge (driver delay, multiple-truck-on-yard congestion, equipment failure). <strong>Lifting the UI cap is a one-line dview change.</strong></p>
+<h3>8g. Minor: minimum-duration filter would need a tweak</h3>
+<p><code>_handleFinishedState</code> (<code>:696-702</code>) skips upload if <code>getDuration() &lt; bMinTransDuration</code> AND no ticket AND not forced-by-error. For a paired transaction where the tare side might initially have a short duration before the loadout phase begins, this filter would only fire if we never got a ticket and never had errors — likely harmless, but worth keeping in mind.</p>
+<hr>
+<h2>9. The correlation-key problem (the load-beari
+  </main>
+</div>
+</body>
+</html>

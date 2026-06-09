@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cross-repo status — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html" class="active">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Cross-repo status</div></header>
+    <h1>Cross-Repo Status — Jahna FastWeigh Integration</h1>
+<blockquote>
+<p>This is the doc that changes most often. <strong>Update it at every session end</strong> before you <code>/checkpoint</code>. The convention: per-repo block with branch + HEAD commit + uncommitted file list + 1-line status sentence.</p>
+</blockquote>
+<blockquote>
+<p><strong>MODEL ANCHOR 2026-06-02:</strong> Tare↔loadout correlation = configurable PosType19 tare-ticket field (default <code>truck_id</code>), provider-agnostic across Apex XML and FastWeigh JSON. Older <code>transactionGuid</code> / Tier 1/2/3 framing is superseded. &quot;How we hand FastWeigh our measurement data&quot; is parked, <strong>not in current test scope</strong>. See <code>paired-mode-flow.md</code> for mechanics and the <code>jahna-correlation-model</code> memory for authoritative summary.</p>
+</blockquote>
+<h2>⚡ EXTRACTION STATUS — 2026-06-08 — MERGED TO DEVELOP IN BOTH REPOS</h2>
+<p><strong>Jahna-specific measurement + permit + QR code has been EXTRACTED from develop in cloudapi + nvr.</strong> The Jahna feature work itself remains preserved on the Jahna branches; only the develop-side artifacts (migrations, recorder client modules, dview widgets, Jahna-specific tests) were removed.</p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>develop HEAD</th>
+<th>What got removed</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>cloudapi</td>
+<td><code>9ad57f23 Merge tasks/86babgu9m — extract Jahna-specific measurement code off develop</code></td>
+<td>2 migrations (<code>20260520-add-sw-transaction-measurement-columns</code>, <code>20260525-drop-sw-transaction-bpermit</code>), 168 lines from <code>transactionMeasurement.test.js</code> (DELETED), 12-line measurement block from <code>transaction.js</code>, 6 lines from <code>db/init.sql</code></td>
+</tr>
+<tr>
+<td>nvr</td>
+<td><code>7ab8ce839 Merge tasks/86babk11u-nvr — extract Jahna-specific measurement + permit + QR code off develop (recorder Python + dview Java halves)</code></td>
+<td>recorder: <code>measurement_client.py</code> + <code>permit_client.py</code> (referenced as dangling imports on develop), 6 event classes in <code>event.py</code>, <code>_findPermitQrText</code> + spot-decoder/FDOT fetch loops in <code>thread_truck_transaction.py</code>, <code>test_sw_paired_scenario_matrix.py</code> (DELETED — Jahna-specific 529 lines). dview: 113 lines from <code>ScaleWatcherDialog.java</code> (measurement + permit widgets/accessors), <code>ScaleWatcherDialogPreviewTest.java</code> (DELETED), 2 comment blocks from <code>PosController.java</code></td>
+</tr>
+</tbody></table>
+<p><strong>Test counts after merge:</strong> cloudapi 375/375 (was 392 pre-extraction), nvr recorder 942/1-skipped (was 0 — broken imports on develop before extraction), nvr dview 689/8-skipped (identical to baseline; deleted PreviewTest was an orphan outside DViewSuite).</p>
+<p><strong>What STAYS on develop (verified intact):</strong></p>
+<ul>
+<li>Tare + Loadout Pairing — <code>lblPairedSection</code>, <code>entTareField</code>/<code>entTareValue</code>/<code>spiPairedTimeout</code>, <code>setPairedSectionVisible()</code>, <code>setPairTimeout</code>/<code>setTareField</code>/<code>setTareValue</code> getters/setters; PosController load+save calls at <code>:1789-1791</code> + <code>:4477-4479</code>; PosType19 <code>sTareField</code>/<code>sTareValue</code>/<code>bPairTimeout</code> columns; <code>PosType19GlobalizePairedTest</code> (in DViewSuite, passing)</li>
+<li>Ticket source selector — <code>apex</code>/<code>fastweigh</code>/<code>commandcloud</code> dropdown; <code>PosType19FeatureStackTest</code></li>
+<li>Cloud Upload toggle — <code>btnCloudUpload</code> + <code>checkCloudUpload</code>/<code>setCloudUpload</code></li>
+<li>FastWeigh webhook generic plumbing on cloudapi — Svix verification, generic ticket events (<code>TicketReceived</code>/<code>TareTicketReceived</code>)</li>
+<li><code>AlertNoMeasurement</code> / <code>AlertStaleMeasurement</code> alertType enum slots at indices 10-11 in <code>transaction.js:819-820</code> — INTENTIONALLY kept to preserve customer alert-config array indices</li>
+</ul>
+<p><strong>Where the Jahna feature work LIVES:</strong></p>
+<ul>
+<li>nvr: <code>task/86b9y6jc5-jahna-fastweigh-addons @ 93727990d</code> (pushed) — has every removed file in full (<code>measurement_client.py</code>, <code>permit_client.py</code>, 6 event classes, <code>ScaleWatcherDialog</code> measurement+permit widgets, <code>ScaleWatcherDialogPreviewTest</code>). Also has extras: <code>Qr_Read</code> event, <code>Permit_ScanAttempted</code> event, visual gate for QR detection.</li>
+<li>cloudapi: <code>feat/jahna-measurement @ 149290e</code> (local-only) — preservation snapshot of develop&#39;s pre-extraction tip.</li>
+</ul>
+<p><strong>Future Jahna deploy strategy:</strong> merge develop INTO the Jahna branch and resolve conflicts on extracted files by KEEPING the Jahna branch&#39;s version. Develop&#39;s deletions should not be propagated.</p>
+<p><strong>ClickUp status:</strong></p>
+<ul>
+<li><code>86babk11u</code> (umbrella — Jahna feature stack) — <strong>STAYS PENDING.</strong> Feature delivery is parked on the Jahna branch, not in develop.</li>
+<li><code>86babgu9m</code> (cloudapi extraction sub) — <strong>MERGED IN DEVELOP.</strong></li>
+<li>Any other subtasks of <code>86babk11u</code> whose scope is extraction/removal — MERGED IN DEVELOP. Subtasks for actual Jahna feature delivery — stay in their current state.</li>
+</ul>
+<blockquote>
+<p><strong>NOTE:</strong> The per-repo sections BELOW reference the older <code>tasks/86b9y6jc5</code> branch names from the prior planning phase. The branch state is now superseded by this extraction merge. Keep this section authoritative for &quot;where is Jahna-specific code right now&quot;; treat the older sections as historical context until the next full hub refresh.</p>
+</blockquote>
+<hr>
+<h2>📋 Quick Dashboard</h2>
+<p>Compact view of what&#39;s outstanding per repo. <code>[NOW]</code> = ready to start, no blockers. <code>[BLOCKED ...]</code> = gated on something. <code>[CALL]</code> = needs Mustang&#39;s call on intent. Verification labels: VERIFIED in last session = checked against current code; CLAIMED = read from memory/doc, not freshly verified. Update this section first when state changes.</p>
+<h3>nvr (recorder + dview + spot-decoder) — branch <code>tasks/86b9y6jc5</code> (single consolidated branch)</h3>
+<blockquote>
+<p><strong>Updated 2026-05-24 (evening):</strong> the prior two-branch state was consolidated to ONE branch. <code>feat/scalewatcher-feature-stack</code> was fast-forwarded into <code>tasks/86b9y6jc5</code> (5 scalewatcher commits appended) and the scalewatcher branch was deleted local + origin. nvr now has a single Jahna branch — <code>tasks/86b9y6jc5</code>, tip <code>a8a6da5f4</code>, 21 commits ahead of develop, working tree clean, pushed.</p>
+</blockquote>
+<h3>nvr/recorder (Python)</h3>
+<ul>
+<li>✅ DONE — Blanket-permit GVW handling: per-axle K limits (<code>permit_client.py:421-426</code>) + blanket flag (<code>:386-389</code>) are sufficient for current validation. Full axle-config→GVW table extraction is an extensibility point — implement only if a downstream consumer needs the cross-reference (none today).</li>
+<li>✅ DONE — Orphan-measurement: alert-and-continue is the intended design (<code>thread_truck_transaction.py:770-775</code>). Fires <code>Alert_NoMeasurement</code> and saves all available data. Per design principle: never block data preservation; fail with the most data possible so ops can recover.</li>
+<li>✅ CLOSED (customer decision 2026-06-03) — Drop-axle policy enforcement: NOT NEEDED.  Operator manually enters count of dropped axles only.  No scenario where tare→loadout axle count changes.  AI axle detection in a later phase will count contact-with-ground axles automatically.  See <code>project_drop_axle_no_alerting</code> memory.</li>
+<li>✅ DONE 2026-06-02 — globalize-paired-toggle: Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;) replaces PosType19.fPairTareLoadout.  Live on VM4001.  Commit <code>336dadc28</code>.</li>
+<li>✅ DONE 2026-06-02 — TareTicketReceived event-type rename: recorder serializes _tare-tagged events as a distinct wire event at the cloud-sw boundary.  Commit <code>3dbb8e2a9</code> (initial as <code>TicketReceivedTare</code>).</li>
+<li>✅ DONE 2026-06-03 — <code>TicketReceivedTare</code> → <code>TareTicketReceived</code> wire-name rename (David call: &quot;Tare prefix instantly recognizable&quot;).  Atomic 3-repo PR: nvr <code>ffa09a0b5</code> + cloudapi <code>430341b</code> + scalewatcher <code>2fa4563</code>.  All branches pushed.  Tests 32/32 (recorder) + 366/366 (cloudapi) + 25/25 (scalewatcher).</li>
+<li>✅ FIXED 2026-06-02 — <code>bug_recorder_2x_cloud_upload</code>: websocket port-routing filter in addEvent.  Commit <code>cd1ae227c</code>.</li>
+<li>✅ FIXED 2026-06-02 — <code>bool(&#39;off&#39;)==True</code> regression in thread_main.py: explicit string compare.  Commit <code>977147f14</code>.</li>
+</ul>
+<h3>nvr/dview (Java)</h3>
+<ul>
+<li><code>[NOW]</code> PosController dialog↔model roundtrip integration tests</li>
+<li><code>[NOW]</code> <code>applyChannelVisibility</code> tests</li>
+<li><code>[NOW]</code> <code>applyMeasurementToggleVisibility</code> tests</li>
+</ul>
+<h3>nvr/spot-decoder (C) — testbed at <strong>192.168.0.69</strong> (was 0.187 pre-2026-06-01)</h3>
+<ul>
+<li><code>[NOW]</code> libudev hotplug in <code>input.c</code> (currently single scan at startup)</li>
+<li><code>[NOW]</code> Multi-keyboard FD arrays in <code>input.c:150-152</code> (multi-device coexistence — Arduino path retired, but macro pad / numpad coexistence still relevant)</li>
+<li><code>[NOW]</code> Hardware test Phase 2 — 9 items (compile, HDMI, keyboard, calibration, line movement, overlay at 4K, screenshot-includes-overlay, regression of views/PTZ/labels/boxes).  <em>Note: &quot;Ubuntu Mac&quot; language was stale; 0.69 Jetson IS the live deploy target.  Drive tests directly against it.</em></li>
+<li><code>[NOW]</code> Cal HTTP validation hardening — reject <code>feet &gt; MAX_AXLE_FEET</code> + <code>inches &lt; 0</code> (see <code>bug_spot_decoder_cal_validation</code>)</li>
+<li><code>[NOW]</code> HELP_TOGGLE binding existence validation at conf load</li>
+<li><code>[NOW]</code> Notification HTTP endpoint severity-enum + non-empty-text validation</li>
+<li><code>[BLOCKED — ADR-011 + permit-data-flow design]</code> Per-permit caps in bridge formula (replace generic 20K/34K/80K with permit&#39;s <code>axle_weight_limits</code>)</li>
+<li><code>[CALL — port from cv-axle-controller demo]</code> Mark which apply (deferred per Mustang — discuss what features remain when we revisit):<ul>
+<li>Configurable line/handle colors (demo Settings UI; spot-decoder colors hardcoded)</li>
+<li>Live scale weight on HDMI (Mustang&#39;s dashboard vision)</li>
+<li>Rebindable key actions / key capture (already partially done — B2 conf-driven keymap + GUI editor shipped 2026-06-02)</li>
+<li>Auth / admin role (deferred — <code>feedback_avoid_word_gate</code> says no &quot;gating&quot;; could be &quot;require admin&quot; toggle on certain destructive operations)</li>
+<li>Measurement history view — <strong>NOT NEEDED on spot-decoder</strong> per Mustang (history lives elsewhere)</li>
+<li>Touch/pointer drag — N/A (HDMI not touchscreen)</li>
+</ul>
+</li>
+<li><code>[DISCUSS — NEW IDEA from Mustang 2026-06-03]</code> <strong>Spot-decoder feed as NVR camera</strong>: pipe spot-decoder HDMI output (measurement+movement overlay) back to NVR as a virtual camera so the NVR records the full operator session.  Precedent: Rosas POS order-menu screens may have used a similar pattern.  See <code>project_spot_decoder_as_nvr_camera</code> memory.</li>
+<li><code>[FUTURE — ADR for QR detection source]</code> When AI axle detection moves to the Jetson, decide: QR reader stays on recorder (current — fast, durable) or migrates to Jetson (higher-level AI), or hybrid.</li>
+</ul>
+<h3>cv-axle-controller (Arduino firmware) — ✅ ABANDONED 2026-06-03</h3>
+<ul>
+<li><del>Arduino Leonardo USB descriptor rename</del> — REMOVED.  Hardware controller path abandoned in favor of macro keypad with encoders (Cybrix 16 ordered).  Customer&#39;s 5 sites currently use EOL Razer Stream Controllers; we&#39;ll adapt on the fly (potentially substitute macro pads as interim).  All Arduino-related work removed from TODO.</li>
+<li>See <code>project_arduino_controller_abandoned</code> memory for rationale + Cybrix 16 notes.</li>
+</ul>
+<h3>cloudapi (Node.js) — branch <code>tasks/86b9y6jc5</code></h3>
+<ul>
+<li>✅ DONE 2026-05-24 — Cherry-picked <code>hotfix/sendAlertEmail-template-vars</code> (<code>5f6e7d52</code> → <code>b192fd3</code> on <code>tasks/86b9y6jc5</code>); all 346 jest tests pass.</li>
+<li><code>[NOW]</code> Phase 5b REST endpoints — transaction detail expanded (measurement + permit events) + history + filters by axle count / bridge pass / permit status</li>
+<li><code>[NOW]</code> Drop vestige <code>bPermit</code> column (cleanup migration, not blocking)</li>
+</ul>
+<h3>scalewatcher portal — branch <code>tasks/86b9y6jc5</code> (UNRELATED security cleanup, == develop)</h3>
+<ul>
+<li><code>[NOW — plan locked 2026-05-24]</code> <strong>Transaction Board UI</strong> — see <a href="transaction-board-ui-plan.md">transaction-board-ui-plan.md</a>.  Conditional event-key legend, new permit + measurement icons, tare-half opacity (0.5), uses recorder-side <code>tare: true</code> + <code>provider: &#39;apex&#39;</code> fields landing on nvr <code>tasks/86b9y6jc5</code>.  Backend dependency: new <code>GET /sw/event-types-seen?serial=X</code> endpoint in cloudapi (Phase A in the plan).</li>
+<li><strong>[RETIRED 2026-06-09 — David]</strong> Prior &quot;Transaction Gallery&quot; plan (separate <code>MeasurementPanel</code> / <code>PermitPanel</code> / <code>Measurement History</code> report / new filters) is NOT a Jahna deliverable. Portal renders SW_Event rows generically — sData JSON parsed at render time — so the new event types (MeasurementRecorded, Permit_Validated, Permit_ScanAttempted) display automatically. The only portal-side delta is the icons + Transaction Board legend tweaks above, already on the Jahna work branch. No dedicated panels, no transaction-gallery component, no history report, no new filter UI.</li>
+</ul>
+<h3>Testing (cross-product, new category)</h3>
+<ul>
+<li><code>[NOW]</code> Cross-product E2E with synthetic FastWeigh payloads: webhook → cloudapi → NVR → spot-decoder → upload → staging DB → portal</li>
+<li><code>[NOW]</code> Failure modes: spot-decoder unreachable, measurement stale, FDOT 404, permit PDF malformed, recorder crash mid-flight (correlation-id dedup)</li>
+<li><code>[NOW]</code> Paired-mode edge cases: tare-without-loadout timeout, loadout-without-tare orphan, double-loadout, paired across recorder restart</li>
+<li><code>[NOW]</code> Provider-mismatch warning fires correctly</li>
+<li><code>[NOW]</code> Per-row feature-toggle hot-flip while transactions in flight</li>
+<li><code>[NOW]</code> dview ScaleWatcherDialog visibility-gating roundtrips (channel switching mid-edit)</li>
+<li><code>[BLOCKED — FastWeigh creds]</code> Real-payload E2E (whenever creds arrive)</li>
+</ul>
+<h3>Cross-repo blockers — highest leverage to unstick</h3>
+<ul>
+<li><strong>Customer (Jahna):</strong> ADR-009 loader-tablet scope; ADR-011 divisible vs nondivisible permit weight rules; drop-axle policy decision; orphan-measurement intent (CALL above)</li>
+<li><strong>Vendor (FastWeigh):</strong> real Svix credentials for live E2E test</li>
+<li><strong>Hardware:</strong> Ubuntu Mac (entire spot-decoder Phase 2); Arduino plugged in (Phase 2 controller block).  Testbed at <code>192.168.0.69</code> (was <code>192.168.0.187</code> pre-2026-06-01).  Box admin docs: <code>nvr/spot-decoder/docs/testbed-setup.md</code> (spotctl wrapper, SSH, web UI, rebuild loop).</li>
+<li><strong>External date:</strong> Tue 2026-05-26 — test camera arriving → ADR-010 QR-decode host design (spot-decoder vs recorder)</li>
+</ul>
+<hr>
+<p><strong>Last refresh:</strong> 2026-05-24 from parallel 5-repo verification against actual code (recorder + dview + spot-decoder + cloudapi + scalewatcher). Prior refresh 2026-05-22 had stale HEAD commits, listed SW_Permit as &quot;NOT STARTED&quot; against ADR-006 (it&#39;s NOT NEEDED), and treated merge-to-develop as the next blocker. <strong>Policy clarified 2026-05-24:</strong> task branches accumulate work; merge-to-develop only happens per repo once the entire Jahna feature set is tested and wrapped.</p>
+<h2>Customer rollout sequence</h2>
+<p><strong>[VERIFIED — customer call 2026-05-21]</strong></p>
+<table>
+<thead>
+<tr>
+<th>Site</th>
+<th>Has AxlEye today?</th>
+<th>Rollout note</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Van Fleet</strong></td>
+<td>(test site)</td>
+<td><strong>Primary test site for Dividia rollout</strong></td>
+</tr>
+<tr>
+<td>Green Bay (Davenport)</td>
+<td>yes</td>
+<td>Rollout candidate after Van Fleet</td>
+</tr>
+<tr>
+<td>Haines City</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Independent North</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Independent South</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Ortona (Moore Haven)</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Savannah (Fleming GA)</td>
+<td><strong>no</strong></td>
+<td>Camera location in swamp — AxlEye couldn&#39;t be installed; AI-based axle counting was the prior plan</td>
+</tr>
+<tr>
+<td>Hilochee</td>
+<td><strong>no</strong></td>
+<td>Single scale, trucks tare weekly/monthly only; lower-priority rollout</td>
+</tr>
+</tbody></table>
+<p>Operational volume: ~1400 loads Mon-Fri, ~50 weekend across all sites.</p>
+<hr>
+<h2>nvr (<code>~/Desktop/dev_projects/nvr/</code>)</h2>
+<p>Two branches in play, both pushed to origin. Active development continues on <code>feat/scalewatcher-feature-stack</code>; no merge to develop yet (per policy, waits until entire Jahna feature set is wrapped).</p>
+<h3>Branch 1: <code>tasks/86b9y6jc5</code> (Jahna pilot foundation)</h3>
+<p><strong>HEAD commit:</strong> <code>9d3d18b43 cleanup(jahna): drop dead Event.shipmentID phase-tag from paired-mode flow</code> (2026-05-23)
+<strong>Commits ahead of develop:</strong> 16 (paired-mode foundation, durability fix, bundle→paired rename, dividia-only fCloudSw protection, permit PDF ext fix, certifi SSL fix, CloudTicketXML shim, paired-mode config validation, shipmentID cleanup).</p>
+<p><strong>Status (1-line):</strong> Integration-tested end-to-end on VM4001 + cloudapi_staging — paired-mode + dedup + permit PDF + orphan expiry + paired-mode config validation + ApexLog cloud-skip all verified live. Foundation for the feature-stack branch on top.</p>
+<h3>Branch 2: <code>feat/scalewatcher-feature-stack</code> (off <code>tasks/86b9y6jc5</code>, current HEAD)</h3>
+<p><strong>HEAD commit:</strong> <code>a8a6da5f4 refactor(jahna): rename ApexDialog -&gt; ScaleWatcherDialog</code> (2026-05-23)
+<strong>5 commits on top of <code>tasks/86b9y6jc5</code>:</strong></p>
+<ul>
+<li><code>f6f857739</code> Phase A: PosType19 cols + TicketLog table (rda-db migration + dview/PosType19.java + rda-backend models + db.ticket_log + 35 tests)</li>
+<li><code>bf550c405</code> Phase B+D: recorder TicketLog write hook + per-row measurement/permit toggle resolution + PROVIDER MISMATCH warning + 22 tests</li>
+<li><code>e62ed5fe4</code> Phase C: dview ScaleWatcherDialog Input Channel + Feature Add-Ons sections + PosController save/load wiring</li>
+<li><code>e3fe796ef</code> test: ScaleWatcherDialog visual preview harness (3 PNG scenarios)</li>
+<li><code>a8a6da5f4</code> refactor: full rename ApexDialog → ScaleWatcherDialog (file + class + 11 test-IDs + 128 call-site refs)</li>
+</ul>
+<p><strong>Status (1-line):</strong> scalewatcher reframed as a layered product (local + cloud + paired + axle-tracker + permit), each independently per-row togglable. All 4 component suites green (rda-db 275, rda-backend 1096, recorder 946, dview 546). Live-verified against real 0.141 NVR via SSH tunnel.</p>
+<h3>Separate from Jahna scope (nvr EEN follow-ups — informational, do not consolidate into Jahna branch)</h3>
+<p>VERIFIED 2026-05-24: <code>tasks/86b8fvth6-rebased</code> has <strong>7 unique EEN commits NOT in develop</strong> (Apr 21-23 2026). These are dview EEN integration follow-ups, separate from the Jahna cloudapi EEN security fixes that merged to cloudapi develop 2026-04-21.</p>
+<table>
+<thead>
+<tr>
+<th>Branch</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>tasks/86b8fvth6-rebased</code></td>
+<td>7 unique commits: EEN test harness (overlay burner, test launcher), EEN download metadata + configurable cloudapi URL, EEN camera name in MC timeline, EEN cloudapi auth + multi-camera playback, EEN unit tests, EEN integration polish</td>
+</tr>
+<tr>
+<td><code>tasks/86b8fvth6</code> / <code>-backup</code></td>
+<td>Identical SHA <code>d0646435c</code>; stale</td>
+</tr>
+<tr>
+<td><code>tasks/86b8fvth6-een-final</code></td>
+<td>Merged develop in, 0 unique commits</td>
+</tr>
+<tr>
+<td><code>tasks/86b8fvth6-v2</code></td>
+<td>Older SHA <code>f5de94943</code>; stale</td>
+</tr>
+</tbody></table>
+<p><strong>Per Mustang 2026-05-24:</strong> EEN debt does NOT belong in the Jahna feature-stack branch. Track here for visibility; resolve in a separate session when EEN work is the priority again.</p>
+<p><strong>Subsystem status (across both branches) — verified 2026-05-24:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>State</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>spot-decoder C bridge formula + overlay + HTTP API + INI persistence + USB HID</td>
+<td>DONE</td>
+<td><code>spot-decoder/src/measurement.c</code> 838 lines, ~114 tests; HTTP endpoints <code>status</code>/<code>calibrate</code>/<code>set</code>/<code>reset</code>/<code>save_config</code> in <code>http_thread.c:258-322</code></td>
+</tr>
+<tr>
+<td>recorder permit_client (QR→PAS→PDF→parse→validate)</td>
+<td>DONE</td>
+<td><code>permit_client.py:53-500</code>, 54 tests, certifi CA</td>
+</tr>
+<tr>
+<td>recorder measurement_client (HTTP fetch + staleness + screenshot)</td>
+<td>DONE</td>
+<td><code>measurement_client.py</code>, 27 tests</td>
+</tr>
+<tr>
+<td>recorder transaction pipeline (event batch, CloudTicket adapter, paired-mode tare/loadout)</td>
+<td>DONE</td>
+<td><code>thread_truck_transaction.py:723-1068, :890-892</code> (durability finalize after cloudAdd), 95 tests in test_sw_truck_transaction</td>
+</tr>
+<tr>
+<td>recorder inbound-only measurement gate (ADR-008)</td>
+<td>DONE</td>
+<td><code>thread_truck_transaction.py:723-724</code> via <code>fIsTareForMeasurement</code></td>
+</tr>
+<tr>
+<td>recorder TicketLog generic archive</td>
+<td>DONE</td>
+<td><code>thread_truck_transaction.py:1858-1913</code></td>
+</tr>
+<tr>
+<td>recorder per-row feature toggles + provider mismatch warning</td>
+<td>DONE</td>
+<td><code>:1753-1759, :1785-1856</code></td>
+</tr>
+<tr>
+<td>recorder CloudTicketXML shim (paired-mode JSON support)</td>
+<td>DONE</td>
+<td><code>thread_ticket_reader.py:57-81</code></td>
+</tr>
+<tr>
+<td>recorder paired-mode config validation (fail-closed)</td>
+<td>DONE</td>
+<td><code>pos.py:454-491</code></td>
+</tr>
+<tr>
+<td>dview ScaleWatcherDialog (Input Channel + Feature Add-Ons + paired)</td>
+<td>DONE</td>
+<td>546/546 tests, live-verified on 0.141</td>
+</tr>
+<tr>
+<td>dview PosType19 columns + load/save wiring</td>
+<td>DONE</td>
+<td><code>PosType19.java:65-69, :128-132, :220-229, :281-285, :547-590</code>, 5 unit tests</td>
+</tr>
+<tr>
+<td>dview ARM64 + aarch64 declarations</td>
+<td>DONE</td>
+<td>dview.php + eview.php</td>
+</tr>
+<tr>
+<td>Per-row measurement device (<code>sMeasurementSource</code> per Scale Watcher row, not recorder-global)</td>
+<td><strong>VERIFIED DONE</strong> 2026-05-24</td>
+<td><code>measurement_client.py:43-45</code> takes <code>host</code> per-instance; <code>thread_truck_transaction.py:1814-1844</code> resolves per-row. The &quot;VERIFY NEXT SESSION&quot; tag in <code>measurement-integration-plan.md</code> MEASUREMENT_DEVICE_PER_ROW is satisfied</td>
+</tr>
+<tr>
+<td>spot-decoder Hardware test (Phase 2 — 9-item sub-checklist)</td>
+<td>BLOCKED on Ubuntu Mac + Arduino HID</td>
+<td>Compile on Ubuntu target, enable measurement in conf+boot, verify HDMI lines, test USB-keyboard then Arduino input, calibration via HTTP, coarse/fine line movement, overlay rendering at 4K, <strong>screenshot includes overlay</strong>, regression-verify views/PTZ/labels/boxes — per <code>spot-decoder/docs/PROGRESS.md:75-84</code></td>
+</tr>
+<tr>
+<td>spot-decoder Arduino controller integration (Phase 2 — 4-item sub-checklist)</td>
+<td>BLOCKED on Arduino plugged in</td>
+<td>Identify HID name from <code>/proc/bus/input/devices</code>, add VID:PID to input.c keyword list if needed, test joystick line movement (coarse repeat / fine fixed), test mode-toggle button, verify no collision with existing keypad/remote — per <code>PROGRESS.md:86-92</code></td>
+</tr>
+<tr>
+<td>spot-decoder <code>input.c</code> libudev hotplug support</td>
+<td>TODO-VERIFIED (still missing)</td>
+<td>VERIFIED 2026-05-24: zero <code>udev</code> refs in <code>spot-decoder/src/input.c</code>. Today scans <code>/dev/input/event0..31</code> once at <code>input_init()</code>; no re-scan. Needs <code>udev_monitor_new_from_netlink(&quot;udev&quot;)</code> FD added to <code>select()</code> loop. Affects USB keyboard, HDMI display, Arduino controller hotplug. Per <code>project_spot_decoder_hotplug.md</code> + <code>measurement-integration-plan.md</code> §&quot;Hotplug&quot;</td>
+</tr>
+<tr>
+<td>spot-decoder <code>input.c</code> multi-keyboard FD arrays (Arduino + USB numpad coexistence)</td>
+<td>TODO-VERIFIED (still missing)</td>
+<td>VERIFIED 2026-05-24: <code>input.c:150-152</code> still uses single scalar FDs (<code>fdkb</code>, <code>fdir</code>, <code>fdjs</code>). Arduino Leonardo (VID:PID 2341:8036) and standard USB numpad both register as HID keyboards; whichever appears on lower <code>/dev/input/event</code> number wins. Change to arrays per type; match Arduino by unique product name</td>
+</tr>
+<tr>
+<td>Arduino Leonardo firmware: rename USB descriptor to <code>DT-ATC200</code> (Dividia)</td>
+<td>TODO-VERIFIED (still missing)</td>
+<td>VERIFIED 2026-05-24: zero commits across nvr + cv-axle-controller for <code>DT-ATC200</code>. PlatformIO build flags <code>-DUSB_MANUFACTURER=&#39;&quot;Dividia&quot;&#39;</code> + <code>-DUSB_PRODUCT=&#39;&quot;DT-ATC200&quot;&#39;</code> needed. Then <code>find_input_device(&quot;DT-ATC200&quot;, ...)</code> becomes a unique match — no collision with any other keyboard. Lives in <code>cv-axle-controller</code> firmware track</td>
+</tr>
+<tr>
+<td>spot-decoder per-permit caps (replace generic 20K/34K/80K with permit&#39;s <code>axle_weight_limits</code>)</td>
+<td>TODO</td>
+<td>spot-decoder uses generic caps; depends on permit-data flow design + ADR-011 (divisible vs nondivisible)</td>
+</tr>
+<tr>
+<td>Recorder blanket-permit handling (per-axle K limits + blanket flag)</td>
+<td><strong>DONE</strong> 2026-05-24</td>
+<td><code>permit_client.py:386-389</code> (blanket flag) + <code>:421-426</code> (per-axle K) sufficient. Full axle-config→GVW <em>table</em> extraction deferred — extensibility point, implement only if a downstream consumer requires the cross-reference</td>
+</tr>
+<tr>
+<td>Recorder drop-axle policy enforcement (inbound)</td>
+<td>TODO</td>
+<td>measurement returns axle_count but no policy alert if missing</td>
+</tr>
+<tr>
+<td>Recorder orphan-measurement behavior (alert-and-continue)</td>
+<td><strong>DONE</strong> 2026-05-24</td>
+<td><code>thread_truck_transaction.py:770-775</code> fires <code>Alert_NoMeasurement</code> and saves all available data. Design principle: never block data preservation; fail with the most data possible so ops can recover from partial outcomes (see [[design_principle_save_partial_data]] memory)</td>
+</tr>
+<tr>
+<td>QR decode host design — spot-decoder vs recorder (where does <code>PermitScanned</code>/<code>QrRead</code> event originate?)</td>
+<td>TODO-DESIGN</td>
+<td>Future ADR-010. Test camera arriving Tue 2026-05-26 (Uniview, likely IPC3635SB-ADZK-I0 to match Jahna&#39;s). Two candidates: spot-decoder (already has RTSP frame access, adds zbar dep + 2nd stream) vs recorder/mpengine (already pulls all streams, adds decode pipeline) — per <code>measurement-integration-plan.md</code> §&quot;QR Code Reading from Camera&quot;</td>
+</tr>
+<tr>
+<td>spot-decoder cv-axle-controller demo-feature port candidates (history view, configurable colors, live scale weight on HDMI, rebindable keys, etc.)</td>
+<td>TODO-DESIGN</td>
+<td>See Quick Dashboard at top — Mustang to confirm which apply. Pre-Jahna platform TODOs (<code>input.c:186</code>, <code>:190</code>, <code>ptz_panasonic.c:90</code>, <code>http.c:93</code>) verified as Brad Cagle 2014-2015, exist on develop, not pilot-related, dropped from dashboard</td>
+</tr>
+<tr>
+<td>dview PosController dialog↔model roundtrip integration tests</td>
+<td>TODO</td>
+<td>only visual preview today</td>
+</tr>
+<tr>
+<td>dview <code>applyChannelVisibility</code> + <code>applyMeasurementToggleVisibility</code> tests</td>
+<td>TODO</td>
+<td>gating logic uncovered</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>cloudapi (<code>~/Desktop/dev_projects/cloudapi/</code>)</h2>
+<p><strong>Branch:</strong> <code>tasks/86b9y6jc5</code>
+<strong>HEAD commit:</strong> <code>b192fd3 fix(sw): sendAlertEmail no longer crashes the process on error paths</code> (cherry-picked from <code>hotfix/sendAlertEmail-template-vars</code> on 2026-05-24)
+<strong>Commits ahead of develop on Jahna track:</strong> 4 — <code>6a17642</code> (webhook + measurement cols) → <code>8ad2ee7</code> (paired-mode alerts) → <code>77c8faf</code> (idempotency) → <code>b192fd3</code> (sendAlertEmail hotfix).</p>
+<p><strong>Status (1-line):</strong> Webhook ingestion + transaction insert + measurement summary + paired-mode alerts + correlation-id idempotency + sendAlertEmail hotfix all committed and tested (346/346 jest tests green 2026-05-24). Per ADR-006, no SW_Permit table is needed — permits flow through existing SW_Event + image upload. Only portal-side REST endpoints (Phase 5b) remain on the cloud side; <code>bPermit</code> vestige cleanup is optional.</p>
+<p><strong>Subsystem status — verified 2026-05-24:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>State</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>POST /sw/webhooks/fastweigh</code> (Svix HMAC, dedup, prepareTicket, pushToNvr + fallback insert)</td>
+<td>DONE</td>
+<td><code>app/controllers/scalewatcher/fastweigh.js:151-239</code>, route <code>app/routes/scalewatcher.js:275</code></td>
+</tr>
+<tr>
+<td><code>SW_WebhookLog</code> table</td>
+<td>DONE</td>
+<td><code>migration 20260518000000</code></td>
+</tr>
+<tr>
+<td><code>SW_Transaction</code> insert + summary update (bAxleCount, fBridgePass)</td>
+<td>DONE</td>
+<td><code>transaction.js:908-917</code>, <code>migration 20260520000000</code></td>
+</tr>
+<tr>
+<td><code>sCorrelationId</code> idempotency (pre-check SELECT + ER_DUP_ENTRY backstop)</td>
+<td>DONE</td>
+<td><code>transaction.js:634-710</code>, <code>migration 20260523000000</code></td>
+</tr>
+<tr>
+<td>Paired-mode alerts (12=TareWithoutLoadout, 13=LoadoutWithoutTare), <code>ALERT_COUNT=14</code></td>
+<td>DONE</td>
+<td><code>transaction.js:795, 827-828</code></td>
+</tr>
+<tr>
+<td>Permit event ingestion (<code>Permit_Validated</code> rides on <code>SW_Event</code> per ADR-006)</td>
+<td>DONE-BY-DESIGN</td>
+<td>Generic event-batch insert path covers it; no special wiring required</td>
+</tr>
+<tr>
+<td>Permit PDF storage (rides on transaction image upload per ADR-006)</td>
+<td>DONE-BY-DESIGN</td>
+<td>Existing image upload path covers it</td>
+</tr>
+<tr>
+<td><code>SW_Permit</code> table</td>
+<td><strong>NOT NEEDED (ADR-006)</strong></td>
+<td>Vestige <code>bPermit</code> column on SW_Transaction can be dropped in cleanup migration whenever</td>
+</tr>
+<tr>
+<td>Permit OCR / validation at cloud</td>
+<td><strong>NOT NEEDED (ADR-007)</strong></td>
+<td>NVR side validates via FDOT PAS public URL</td>
+</tr>
+<tr>
+<td>Phase 5b REST endpoints for portal (transaction detail expanded; history + filters by axle count / bridge pass / permit status)</td>
+<td>TODO</td>
+<td>Greenfield; blocks scalewatcher Phase 6</td>
+</tr>
+<tr>
+<td>Bug: <code>transaction.js:377/:379/:398</code> <code>sendAlertEmail</code> out-of-scope refs (ReferenceError in <code>nonalert</code> email path)</td>
+<td><strong>FIXED on <code>tasks/86b9y6jc5</code></strong> (<code>b192fd3</code>, cherry-picked from <code>hotfix/sendAlertEmail-template-vars</code> <code>5f6e7d52</code> on 2026-05-24)</td>
+<td>Hotfix is cloudapi-only; VERIFIED no equivalent code in nvr</td>
+</tr>
+<tr>
+<td>Drop vestige <code>bPermit</code> column</td>
+<td>TODO (cleanup, not blocking)</td>
+<td>Per ADR-006</td>
+</tr>
+<tr>
+<td>Project docs hub (<code>docs/jahna-fastweigh/</code>)</td>
+<td>DONE 2026-05-22</td>
+<td><strong>Local-only, never committed</strong> — <code>.git/info/exclude:7</code> excludes this dir</td>
+</tr>
+<tr>
+<td>Real FastWeigh credential E2E test</td>
+<td>BLOCKED on Jahna</td>
+<td>open-questions.md §1.1; can simulate now with synthetic Svix payloads</td>
+</tr>
+</tbody></table>
+<p><strong>Local-only files in cloudapi (intentionally not committed):</strong></p>
+<ul>
+<li><code>docs/jahna-fastweigh/</code> (the hub) — excluded via <code>.git/info/exclude:7</code>, stays local until the project ships and we decide what (if anything) belongs in tree</li>
+<li><code>.netrc</code>, <code>DVIEW_EEN_AUTH_INSTRUCTIONS.md</code> — untracked, unrelated (EEN work)</li>
+</ul>
+<hr>
+<h2>cv-axle-controller (<code>~/Desktop/dev_projects/cv-axle-controller/</code>)</h2>
+<p><strong>Branch:</strong> <code>master</code>
+<strong>HEAD commit:</strong> <code>54d5e36 Controller test: fix fine LED state tracking</code> (2026-05-18)
+<strong>Working tree:</strong> clean</p>
+<p><strong>Status (1-line):</strong> Reference-only for Jahna FastWeigh as of 2026-05-19 decision (measurement UI moved to spot-decoder C); hardware track (PCB, enclosure, Arduino firmware v2.2) still actively developed here.</p>
+<p><strong>Subsystem status:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Browser/Node web app (bridge formula, calibration, SQLite)</td>
+<td>KEPT as reference / test harness; not production for Jahna</td>
+</tr>
+<tr>
+<td>Arduino firmware v2.2 (USB HID, 13 key slots, lock/fine LEDs)</td>
+<td>DONE 2026-05-18, actively developed</td>
+</tr>
+<tr>
+<td>PCB schematic + 3D enclosure (<code>docs/pcb-spec.md</code>, <code>docs/enclosure-component-spec.md</code>)</td>
+<td>DONE for v1 hardware</td>
+</tr>
+<tr>
+<td>Migration of measurement UI to spot-decoder C</td>
+<td>DECIDED 2026-05-19; implemented in nvr/spot-decoder</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>scalewatcher (portal) (<code>~/Desktop/dev_projects/scalewatcher/</code>)</h2>
+<p><strong>Branch:</strong> <code>tasks/86b9y6jc5</code> (UNRELATED — security task: removed plaintext auto-login from localStorage; coincidental branch name collision with the cloudapi/nvr Jahna branch)
+<strong>HEAD commit on branch:</strong> <code>5bb5ffb Remove auto-login plaintext credential storage from localStorage</code>
+<strong>Working tree:</strong> unrelated uncommitted (<code>docker-compose.yml</code> npm noise filter, <code>package.json</code> whitespace, <code>CLAUDE.md</code> + <code>md_files/</code> untracked)</p>
+<p><strong>Status (1-line):</strong> Production portal v2026.2.1 — current branch is unrelated security cleanup; verified by grep that zero Jahna/FastWeigh/permit/measurement/Permit_Validated references exist in <code>src/</code>. Phase 6 is fully greenfield. Will need a new branch off develop when work starts.</p>
+<p><strong>Subsystem status — verified 2026-05-24 (grep across <code>src/</code>):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Subsystem</th>
+<th>State</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Transaction-board display + monitoring + alerts + reporting</td>
+<td>DONE</td>
+<td>Production</td>
+</tr>
+<tr>
+<td>Generic SW_Event renderer (sData parsed per event type → auto-display)</td>
+<td>DONE</td>
+<td>Production. New event types from the Jahna feature set (MeasurementRecorded, Permit_Validated, Permit_ScanAttempted) display automatically through this path — no per-type component work needed.</td>
+</tr>
+<tr>
+<td>Transaction Board UI delta for Jahna (icons + legend + tare-half opacity + conditional event-key)</td>
+<td>DONE on Jahna work branch</td>
+<td>See <code>transaction-board-ui-plan.md</code>. Uses recorder-side <code>tare:true</code> + <code>provider:</code> fields. Backend dep: <code>GET /sw/event-types-seen?serial=X</code></td>
+</tr>
+<tr>
+<td>ACL bit for Jahna access</td>
+<td>TODO</td>
+<td>Coordinate with backend</td>
+</tr>
+</tbody></table>
+<p><strong>[CORRECTED 2026-06-09 — David]</strong> Prior table rows describing a &quot;MeasurementPanel&quot; component on a Transaction Gallery view, separate &quot;PermitPanel&quot;, &quot;Measurement History&quot; report, axle-count/bridge-pass filters, and bAxleCount/fBridgePass table columns are REMOVED. None of those are Jahna deliverables. The generic event renderer + sData parsing + new icons covers it.</p>
+<hr>
+<h2>Phase summary across all repos</h2>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>What</th>
+<th>Where</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>spot-decoder C measurement overlay + bridge formula</td>
+<td>nvr/spot-decoder</td>
+<td>DONE</td>
+</tr>
+<tr>
+<td>2a</td>
+<td>recorder ↔ spot-decoder bridge (<code>measurement_client.py</code>)</td>
+<td>nvr/recorder</td>
+<td>DONE (per-row toggle on <code>feat/scalewatcher-feature-stack</code>)</td>
+</tr>
+<tr>
+<td>2b</td>
+<td>recorder ↔ FDOT permit (<code>permit_client.py</code>)</td>
+<td>nvr/recorder</td>
+<td>DONE (per-row toggle on <code>feat/scalewatcher-feature-stack</code>)</td>
+</tr>
+<tr>
+<td>2c</td>
+<td>recorder transaction pipeline (event accumulation, FastWeigh adapter, batch upload, paired-mode, inbound-only measurement gate per ADR-008)</td>
+<td>nvr/recorder</td>
+<td>DONE</td>
+</tr>
+<tr>
+<td>2d</td>
+<td>recorder generic TicketLog archive + per-row feature toggles + provider mismatch warning</td>
+<td>nvr/recorder</td>
+<td>DONE</td>
+</tr>
+<tr>
+<td>2e</td>
+<td>dview ScaleWatcherDialog feature-stack restructure (Input Channel + Feature Add-Ons + rename)</td>
+<td>nvr/dview</td>
+<td>DONE, live-verified on 0.141</td>
+</tr>
+<tr>
+<td>3a</td>
+<td>CloudAPI FastWeigh webhook + push to NVR</td>
+<td>cloudapi</td>
+<td>DONE (<code>6a17642</code>)</td>
+</tr>
+<tr>
+<td>3b</td>
+<td>CloudAPI SW_Transaction insert + event batch + measurement summary</td>
+<td>cloudapi</td>
+<td>DONE (<code>6a17642</code>)</td>
+</tr>
+<tr>
+<td>3c</td>
+<td>CloudAPI paired-mode alerts + correlation-id idempotency</td>
+<td>cloudapi</td>
+<td>DONE (<code>8ad2ee7</code>, <code>77c8faf</code>)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Hardware test (HDMI overlay, Arduino HID)</td>
+<td>nvr/spot-decoder on Ubuntu Mac</td>
+<td>BLOCKED on hardware availability</td>
+</tr>
+<tr>
+<td>5a (was: SW_Permit table)</td>
+<td>—</td>
+<td>—</td>
+<td><strong>KILLED by ADR-006</strong> (permits ride on SW_Event)</td>
+</tr>
+<tr>
+<td>5b</td>
+<td>CloudAPI REST endpoints for portal (transaction-detail expanded, history + filters)</td>
+<td>cloudapi</td>
+<td>NOT STARTED (greenfield)</td>
+</tr>
+<tr>
+<td>5c</td>
+<td>CloudAPI bug fix <code>transaction.js:377/:379/:398</code> (<code>alertName</code>/<code>serialId</code>/<code>res</code> out-of-scope in <code>nonalert</code> email path)</td>
+<td>cloudapi</td>
+<td><strong>FIXED</strong> in <code>hotfix/sendAlertEmail-template-vars</code> (<code>5f6e7d52</code>); needs cherry-pick or merge into <code>tasks/86b9y6jc5</code> before that branch wraps</td>
+</tr>
+<tr>
+<td>5d</td>
+<td>Recorder blanket-permit GVW table parsing + cross-ref to measured axle count</td>
+<td>nvr/recorder</td>
+<td>NOT STARTED</td>
+</tr>
+<tr>
+<td>5e</td>
+<td>Recorder permit-aware per-axle weight limits passed to spot-decoder</td>
+<td>nvr/recorder + spot-decoder</td>
+<td>NOT STARTED (also depends on ADR-011)</td>
+</tr>
+<tr>
+<td>5f</td>
+<td>Drop-axle policy enforcement + alert on inbound</td>
+<td>nvr/recorder</td>
+<td>NOT STARTED</td>
+</tr>
+<tr>
+<td>5g</td>
+<td>Orphan-measurement decision (block paired tare if measurement fails?)</td>
+<td>nvr/recorder</td>
+<td>DESIGN (customer Q)</td>
+</tr>
+<tr>
+<td>5h</td>
+<td>PosController dialog↔model integration tests + visibility-gating tests</td>
+<td>nvr/dview</td>
+<td>NOT STARTED</td>
+</tr>
+<tr>
+<td>6</td>
+<td>ScaleWatcher portal — Jahna delta (icons + Transaction Board legend tweaks)</td>
+<td>scalewatcher</td>
+<td>DONE on Jahna work branch. <strong>[CORRECTED 2026-06-09 — David]</strong> prior &quot;measurement panel / permit panel / history / filters&quot; framing was wrong; generic event renderer + sData parsing covers display. ACL bit for Jahna access still TODO.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Real FastWeigh credential E2E test on Jahna&#39;s account</td>
+<td>all</td>
+<td>BLOCKED on Jahna</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Loader-tablet feed (replacing DataBridge feature)</td>
+<td>TBD</td>
+<td>UNSCOPED — depends on open-questions.md §1.0 answer (ADR-009 future)</td>
+</tr>
+</tbody></table>
+<h2>Active blockers (highest priority first)</h2>
+<blockquote>
+<p><strong>Policy reminder (2026-05-24):</strong> Merges to develop happen per repo only when the entire Jahna feature set in that repo is tested and wrapped. Branch progress accumulates; no incremental merges.</p>
+</blockquote>
+<ol>
+<li><strong>Loader-tablet scope</strong> — gates whether the project is &quot;replace AxlEye only&quot; or &quot;replace AxlEye + DataBridge wholesale&quot; (open-questions.md §1.0, future ADR-009)</li>
+<li><strong>FastWeigh real credentials</strong> — gates live-payload E2E testing (open-questions.md §1.1)</li>
+<li><strong>Divisible vs nondivisible permit weight rules</strong> — gates correctness of bridge-formula caps + 5d/5e (future ADR-011)</li>
+<li><strong>Hardware test slot</strong> — Ubuntu Mac availability + Arduino USB HID identification (Phase 4)</li>
+<li><strong>QR decoder source design</strong> — where do <code>PermitScanned</code>/<code>QrRead</code> events originate? Recorder consumes them but doesn&#39;t produce them (future ADR-010)</li>
+</ol>
+
+
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E2E test runbook — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html" class="active">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">E2E test runbook</div></header>
+    <h1>Jahna FastWeigh — E2E Runbook</h1>
+<p><strong>Purpose.</strong> Reproducible, layer-by-layer verification of the paired-mode +
+standalone ticket flow across recorder → cloudapi → staging RDS → portal UI.
+Run this before any merge that touches event names, transaction lifecycle,
+ticket parsing, paired-mode logic, or the cloudapi <code>transaction.js</code> handler.</p>
+<p><strong>Why this exists.</strong> The bytes-hit-the-staging-RDS bar is not enough — a row
+without <code>sTruck</code> or with no surrounding <code>ScaleTruckEntering</code>/QR/Measurement
+events is a row that LOOKS right in raw SQL and BROKEN in the portal. This
+runbook walks every layer so we catch the gap.</p>
+<p><strong>Companion docs:</strong></p>
+<ul>
+<li><a href="./paired-mode-flow.md"><code>paired-mode-flow.md</code></a> — config switches + recorder paths</li>
+<li><a href="./transaction-lifecycle-deep-dive.md"><code>transaction-lifecycle-deep-dive.md</code></a> — every event in the lifecycle</li>
+<li><a href="./cloud-upload-payload-shapes.md"><code>cloud-upload-payload-shapes.md</code></a> — exact JSON shapes</li>
+<li><a href="./fastweigh-integration.md"><code>fastweigh-integration.md</code></a> — webhook signature flow</li>
+</ul>
+<hr>
+<h2>0. TL;DR</h2>
+<pre><code class="language-bash"># From the cloudapi repo root:
+cd docs/jahna-fastweigh/scripts/e2e
+./setup-once.sh                   # configure VM4001 testbed (idempotent, do once per branch)
+./scenario.sh 1                   # run scenario 1 end-to-end with all 4 layers verified
+./scenario.sh 1 --portal-only     # re-verify a prior scenario&#39;s portal layer
+./run-all.sh                      # run all 6 scenarios + matrix summary
+</code></pre>
+<p>Each scenario prints PASS/FAIL per layer and the SW_Transaction.id so you
+(or this script later) can eyeball the row in the staging portal at
+<a href="http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/">http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/</a></p>
+<hr>
+<h2>1. Wire-protocol naming note (read before scripts)</h2>
+<p><strong>Active wire name:</strong> <code>TareTicketReceived</code>
+<strong>Previous wire name (pre-2026-06-03):</strong> <code>TicketReceivedTare</code></p>
+<p>Decision 2026-06-03 (David): the tare-ticket event renames so the &quot;Tare&quot;
+prefix is instantly recognizable when scanning event lists. Shipped as
+atomic 3-repo commit set on 2026-06-03:</p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>Branch</th>
+<th>Commit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>nvr</td>
+<td><code>task/86b9y6jc5-jahna-fastweigh-addons</code></td>
+<td><code>ffa09a0b5</code></td>
+</tr>
+<tr>
+<td>cloudapi</td>
+<td><code>feat/sw-fastweigh-ticket-source</code></td>
+<td><code>430341b</code></td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>feat/sw-portal-feature-key</code></td>
+<td><code>2fa4563</code></td>
+</tr>
+</tbody></table>
+<p>All three branches pushed to origin (NOT merged to develop/master — per
+standing rule, that&#39;s Mustang&#39;s call). If you see <code>TicketReceivedTare</code>
+in current <code>master</code>/<code>develop</code>, that&#39;s the pre-rename state; this
+runbook describes post-rename behavior.</p>
+<p>Touchpoints landed (all 59 sites across the 3 repos converted; verify
+with <code>grep -rn TicketReceivedTare {nvr,cloudapi,scalewatcher}/</code> — should
+return only historical doc references):</p>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>File</th>
+<th>What changed</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>nvr</td>
+<td><code>recorder/src/scalewatcher/thread_cloud_sw.py:309,319,321,325,327</code></td>
+<td>string literal + comments</td>
+</tr>
+<tr>
+<td>nvr</td>
+<td><code>recorder/tests/test_sw_cloud_measurement.py:487-559</code></td>
+<td><code>TestTareTicketReceivedRename</code> class + 5 test methods (renamed from <code>TestTicketReceivedTareRename</code>)</td>
+</tr>
+<tr>
+<td>cloudapi</td>
+<td><code>app/controllers/scalewatcher/transaction.js:908-944</code></td>
+<td><code>else if (current.name === &#39;TareTicketReceived&#39;)</code> branch + comments</td>
+</tr>
+<tr>
+<td>cloudapi</td>
+<td><code>app/tests/__tests__/transactionTareTicketReceived.test.js</code></td>
+<td>renamed from <code>transactionTicketReceivedTare.test.js</code>, all 10+ assertion strings updated</td>
+</tr>
+<tr>
+<td>cloudapi</td>
+<td><code>app/tests/mock-tare-event-direct.js</code></td>
+<td>direct upload mock + console output</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/utilities/parseEventData.js:197-240</code></td>
+<td>both render checks + comments</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/utilities/parseEventData.test.js:68-100</code></td>
+<td><code>describe</code> + 3 of 4 test names + assertions</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/components/search/SearchForm.js:372-377</code></td>
+<td>SQL <code>IN(...)</code> clause + comments</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/components/transaction_board/Table.js:275,300,326,332</code></td>
+<td>basic-view allow-list, icon-map branch, isTare check</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/components/transaction_board/TransactionBoardPreview.js:55,233-234</code></td>
+<td>legend + preview sample</td>
+</tr>
+<tr>
+<td>scalewatcher</td>
+<td><code>src/components/search/preview_table/PreviewSubTable.js:52</code></td>
+<td>PDF icon predicate</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>2. Architecture under test</h2>
+<pre><code>                       Apex XML drop                        FastWeigh webhook
+                       (recorder/src/                      (POST /sw/webhooks/
+                        scalewatcher/                       fastweigh)
+                        thread_ticketing.py)                       │
+                              │                                    │
+                              │                                    ▼
+                              │                          ┌─────────────────────┐
+                              │                          │  cloudapi           │
+                              │                          │  fastweigh.js       │
+                              │                          │  - Svix verify      │
+                              │                          │  - dedup by svix-id │
+                              │                          │  - WS push to NVR   │
+                              │                          └──────────┬──────────┘
+                              │                                     │
+                              ▼                                     ▼
+              ┌───────────────────────────────────────────────────────────┐
+              │  recorder (VM4001)                                        │
+              │  thread_ticket_reader  OR  thread_cloud_websocket         │
+              │       │                                                    │
+              │       ▼                                                    │
+              │  Ticket_Received event with _port stamped                  │
+              │       │                                                    │
+              │       ▼                                                    │
+              │  thread_truck_transaction (per-POS, filters by _port)      │
+              │     - ScaleTruckEntering/On/Leaving lifecycle              │
+              │     - QrRead, MeasurementRecorded, alerts ride along       │
+              │     - paired-mode: cache tare in ApexInboundCache,         │
+              │       match on sMatchInbound field at loadout              │
+              │     - _handleFinishedState → emit cloudAdd dispatcher      │
+              │       │                                                    │
+              │       ▼                                                    │
+              │  thread_cloud_sw._prepareEvents                            │
+              │     - rename TicketReceived → TareTicketReceived if        │
+              │       e._tare=True                                         │
+              │     - serialize images, build transaction JSON             │
+              │       │                                                    │
+              │       ▼                                                    │
+              │  POST cloudapi/sw/addPos with sCorrelationId               │
+              └─────────┬─────────────────────────────────────────────────┘
+                        │
+                        ▼
+              ┌─────────────────────────────────────────────────────────┐
+              │  cloudapi (staging)                                     │
+              │  controllers/scalewatcher/transaction.js                │
+              │     - dedup by sCorrelationId                           │
+              │     - per-event branch: TicketReceived,                 │
+              │       TareTicketReceived, MeasurementRecorded, etc.     │
+              │     - SW_Transaction insert/update                      │
+              │     - SW_Event rows + image uploads                     │
+              └─────────┬───────────────────────────────────────────────┘
+                        │
+                        ▼
+              ┌─────────────────────────────────────────────────────────┐
+              │  cloudapi_staging RDS (us-east-1)                       │
+              │  SW_Transaction, SW_Event, SW_WebhookLog                │
+              └─────────┬───────────────────────────────────────────────┘
+                        │
+                        ▼
+              ┌─────────────────────────────────────────────────────────┐
+              │  scalewatcher portal (staging S3 site)                  │
+              │  Table.js renders icons + truck names + opacity         │
+              │  user: admin@dividia.net  pw: Dt=7799!                  │
+              └─────────────────────────────────────────────────────────┘
+</code></pre>
+<hr>
+<h2>2.5. The full local-test stack (READ THIS FIRST)</h2>
+<p><strong>Why this section exists:</strong> without all four pieces lined up, &quot;I sent
+tickets to staging&quot; is a half-truth.  My 2026-06-03 session hit this:
+sent tickets to my local cloudapi which DID write rows to cloudapi_staging
+RDS, but the <strong>deployed</strong> staging cloudapi + staging portal don&#39;t have
+the new <code>TareTicketReceived</code> handler/renderer — so the staging portal
+showed bare rows without tare-half rendering.  Anyone running the runbook
+needs to know they have to bring up local cloudapi + local frontend
+together to see the full picture.</p>
+<h3>The four stack pieces</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Where it runs</th>
+<th>What runs it</th>
+<th>What has the new code</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1. VM4001 recorder</td>
+<td>VM4001 (192.168.0.141)</td>
+<td>systemd <code>recorder.service</code></td>
+<td>rsync from this Mac via <code>setup-once.sh</code></td>
+</tr>
+<tr>
+<td>2. cloudapi backend</td>
+<td>Mac mini docker container <code>cloudapi-app-1</code> (port 8081)</td>
+<td><code>docker compose</code> in cloudapi repo</td>
+<td>bind-mounts <code>cloudapi/app/</code> → <code>/usr/src/app</code>, nodemon auto-reload on file change</td>
+</tr>
+<tr>
+<td>3. scalewatcher React frontend</td>
+<td>Mac mini docker container <code>scalewatcher-frontend-1</code> (port 3000)</td>
+<td><code>docker compose up frontend</code> in scalewatcher repo</td>
+<td>bind-mounts <code>scalewatcher/</code> (current branch source)</td>
+</tr>
+<tr>
+<td>4. cloudapi_staging RDS</td>
+<td>AWS us-east-1</td>
+<td>managed</td>
+<td>persists rows — DB schema is shared, NOT versioned per branch</td>
+</tr>
+</tbody></table>
+<p>Both the cloudapi container and the scalewatcher container use <strong>bind
+mounts</strong>, so editing source on the Mac auto-reloads (cloudapi via
+nodemon, React via webpack hot-reload).  This is the developer-loop
+guarantee — no rebuild step needed for source edits.</p>
+<h3>Network plumbing</h3>
+<p>VM4001 recorder needs to upload to MY cloudapi (not production
+<code>api.cloud.dividia.net</code>).  <code>setup-once.sh</code> patches VM4001&#39;s
+<code>recorder/src/globals.py</code>:</p>
+<pre><code class="language-python"># Default (production):
+GB[ &#39;cloud-api&#39; ] = &#39;https://api.cloud.dividia.net&#39;
+GB[ &#39;cloud-ws&#39; ]  = &#39;wss://api.cloud.dividia.net:443&#39;
+
+# Patched for local test (auto by setup-once.sh):
+GB[ &#39;cloud-api&#39; ] = &#39;http://&lt;MAC_LAN_IP&gt;:8081&#39;
+GB[ &#39;cloud-ws&#39; ]  = &#39;ws://&lt;MAC_LAN_IP&gt;:8081&#39;
+</code></pre>
+<p>A <code>.bak-e2e-&lt;timestamp&gt;</code> backup is saved; <code>teardown.sh</code> restores it.</p>
+<p>React frontend needs to reach my cloudapi (not production).  In
+<code>scalewatcher/package.json</code>:</p>
+<pre><code class="language-json">&quot;proxy&quot;: &quot;http://host.docker.internal:8081&quot;
+</code></pre>
+<p>Already set — when the frontend container makes API calls to relative
+paths (<code>/sw/transactionboarddata?serial=4001&amp;...</code>), webpack-dev-server
+proxies them to the Mac host&#39;s port 8081 (= cloudapi-app-1).  No
+config change needed.</p>
+<h3>Bringing up the full stack</h3>
+<pre><code class="language-bash"># 1. cloudapi (already up if you used setup-once.sh; this is the verify step)
+cd ~/Desktop/dev_projects/cloudapi &amp;&amp; docker compose up -d
+docker ps --filter name=cloudapi-app-1 | grep Up
+docker exec cloudapi-app-1 grep -c TareTicketReceived /usr/src/app/controllers/scalewatcher/transaction.js
+# expect: 2 (the handler branch + the if-check)
+
+# 2. scalewatcher frontend
+cd ~/Desktop/dev_projects/scalewatcher &amp;&amp; docker compose up -d frontend
+docker ps --filter name=scalewatcher-frontend-1 | grep Up
+# webpack compile takes ~10s; tail logs to confirm:
+docker logs -f scalewatcher-frontend-1 2&gt;&amp;1 | head -30
+# expect &quot;webpack compiled&quot; or &quot;Compiled successfully&quot;
+
+# 3. VM4001 (this is what setup-once.sh does)
+cd ~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/scripts/e2e
+./setup-once.sh
+
+# 4. Open the LOCAL frontend (NOT staging S3) — pin this in your browser:
+open http://localhost:3000
+# Login: admin@dividia.net / Dt=7799!
+# Location: Dividia - David Test
+# IMPORTANT: localhost:3000 talks to YOUR cloudapi (with new code).
+#            scalewatcher-staging.cloud.dividia.net talks to PRODUCTION-DEPLOYED
+#            cloudapi (without new code).
+</code></pre>
+<p>If you want to verify which cloudapi the frontend is talking to, watch
+the network tab: requests to <code>/sw/*</code> should go to <code>localhost:8081</code>
+(proxied), not <code>api-staging.cloud.dividia.net</code>.</p>
+<h3>Mocking the scale lifecycle (ScaleTruckEntering/On/Leaving/Left)</h3>
+<p>Real Moxa scales aren&#39;t required.  <code>test_scripts/scale_simulator.py</code>
+listens on a TCP port and emits weight strings in the recorder&#39;s
+scale protocol; the recorder&#39;s <code>thread_scale_reader</code> connects to it
+exactly as it would a real scale and emits <code>Scale_TruckEntering</code>,
+<code>Scale_TruckOn(weight)</code>, <code>Scale_TruckLeaving</code>, <code>Scale_TruckLeft</code>
+based on weight transitions.</p>
+<p>PosScale config on VM4001:</p>
+<ul>
+<li><code>bID=11</code>, <code>sIP=127.0.0.2</code>, <code>bPort=2101</code>, <code>bType=7</code> (Toledo).</li>
+</ul>
+<p>So scale_simulator runs on VM4001 itself, binds <code>0.0.0.0:2101</code>,
+recorder thread_scale_reader connects to <code>127.0.0.2:2101</code>.</p>
+<p>The wrapper <code>scripts/e2e/lib/scale-sim.sh</code> handles:</p>
+<ul>
+<li><code>start</code> — start scale_simulator on VM4001 in background</li>
+<li><code>enter &lt;weight&gt;</code> — ramp weight 0 → <code>&lt;weight&gt;</code> (truck enters scale)</li>
+<li><code>stable</code> — hold at current weight</li>
+<li><code>leave</code> — ramp weight → 0 (truck leaves scale)</li>
+<li><code>stop</code> — kill scale_simulator</li>
+</ul>
+<p>A full happy-pair scenario looks like:</p>
+<pre><code class="language-bash">./lib/scale-sim.sh start
+./lib/scale-sim.sh enter 42000    # tare truck enters, weight ramps to 42000
+sleep 8                            # wait for ScaleTruckEntering + ScaleTruckOn(42000)
+./lib/inject-apex.sh tare --truck T-X --uniqueid $TS --gross 42000
+sleep 2
+./lib/scale-sim.sh leave           # tare truck leaves
+sleep 8                            # wait for ScaleTruckLeaving + ScaleTruckLeft
+
+./lib/scale-sim.sh enter 79700    # loadout truck enters
+sleep 8
+./lib/inject-apex.sh loadout --ticket 1001 --truck T-X --uniqueid $TS2 --gross 79700
+sleep 2
+./lib/scale-sim.sh leave
+sleep 8
+
+./lib/scale-sim.sh stop
+</code></pre>
+<p>Expected events on the upload payload after the full sequence (per
+scenario S1):</p>
+<pre><code>ScaleTruckEntering
+ScaleTruckOn (42000)
+TareTicketReceived       ← was TicketReceived, renamed at cloud serialize boundary
+MeasurementRecorded
+ScaleTruckLeft
+ScaleTruckEntering
+ScaleTruckOn (79700)
+TicketReceived
+ScaleTruckLeft
+</code></pre>
+<p>The portal Table.js timeline now shows red scale-truck icons at the
+scale lifecycle points + the navy ticket icon (or hotpink tare icon)
+at the ticket points.</p>
+<h3>Why scale_simulator (and not real hardware)?</h3>
+<ul>
+<li>Real scale = Moxa serial converter + physical load cell + scale
+indicator hardware.  We don&#39;t need this for code testing.</li>
+<li>scale_simulator IS the same scale-protocol output a real scale
+produces.  thread_scale_reader can&#39;t tell the difference.</li>
+<li>Lets us drive any weight curve programmatically — repeatable tests.</li>
+</ul>
+<hr>
+<h2>3. Prerequisites</h2>
+<h3>3.1 Credentials (sourced from 1P vault via <code>claude-op</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Secret</th>
+<th>1P path</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>VM SSH password</td>
+<td><code>op://Claude/dividia-vm-root/password</code></td>
+<td><code>sshpass</code> into VM4001 etc.</td>
+</tr>
+<tr>
+<td><code>cloudapi_staging</code> RDS user/password</td>
+<td><code>op://Claude/cloudapi-staging-rds/{username,password}</code></td>
+<td>direct mysql to staging</td>
+</tr>
+<tr>
+<td>Local NVR mariadb</td>
+<td><code>op://Claude/nvr-local-mariadb/password</code> (or compose <code>.env</code>)</td>
+<td>local NVR DB query</td>
+</tr>
+<tr>
+<td>FastWeigh webhook secret</td>
+<td><code>op://Claude/fastweigh-webhook-secret/password</code> (or <code>whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw</code> for staging)</td>
+<td>Svix sig generation</td>
+</tr>
+<tr>
+<td>Staging portal</td>
+<td><code>admin@dividia.net</code> / <code>Dt=7799!</code></td>
+<td>portal login</td>
+</tr>
+</tbody></table>
+<p>Memory references: <code>reference_cloudapi_staging_db</code>, <code>reference_jahna_integration_tunnels</code>.</p>
+<h3>3.2 Tunnels (run from home Mac — skip on office LAN)</h3>
+<pre><code class="language-bash"># Forward tunnels — office LAN access + RDS bridge.
+sshpass -p &quot;$VM_PW&quot; ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -N \
+  -L 8080:192.168.0.141:80 \
+  -L 8088:192.168.0.69:88 \
+  -L 8811:192.168.0.141:22 \
+  -L 3307:dtech.cxpsegdofkv8.us-east-1.rds.amazonaws.com:3306 \
+  root@sshhost.dividia.net &amp;
+
+# Reverse tunnel — VM uploads land on home Mac&#39;s Docker cloudapi:8081.
+sshpass -p &quot;$VM_PW&quot; ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -o ExitOnForwardFailure=yes -N \
+  -R 0.0.0.0:8081:localhost:8081 \
+  root@sshhost.dividia.net &amp;
+</code></pre>
+<p>Verify:</p>
+<pre><code class="language-bash">nc -zv localhost 8080 8088 8811 3307 8081
+lsof -nP -iTCP:8081 -sTCP:LISTEN  # must show Docker, NOT ssh
+</code></pre>
+<h3>3.3 Software on the runner machine</h3>
+<ul>
+<li><code>sshpass</code> (<code>brew install sshpass</code>)</li>
+<li><code>mysql</code> client (<code>brew install mariadb</code> or <code>mysql-client</code>)</li>
+<li><code>jq</code> (<code>brew install jq</code>)</li>
+<li><code>node</code> + <code>npm</code> (for cloudapi local + the FastWeigh mock script)</li>
+<li><code>docker</code> (for cloudapi-app-1 container at localhost:8081)</li>
+<li>Optional: browse tool for portal automation (see §6.4)</li>
+</ul>
+<hr>
+<h2>4. One-time setup per branch</h2>
+<p>Run <code>./setup-once.sh</code> (in <code>scripts/e2e/</code>) which performs all of the below. Or
+do manually:</p>
+<h3>4.1 Confirm code state</h3>
+<pre><code class="language-bash"># nvr
+cd ~/Desktop/dev_projects/nvr &amp;&amp; git rev-parse HEAD
+git log --oneline -5  # should include the TareTicketReceived rename commit
+
+# cloudapi
+cd ~/Desktop/dev_projects/cloudapi &amp;&amp; git rev-parse HEAD
+# must include the TareTicketReceived rename commit
+
+# scalewatcher
+cd ~/Desktop/dev_projects/scalewatcher &amp;&amp; git rev-parse HEAD
+# must include the TareTicketReceived rename commit + portal color change
+</code></pre>
+<h3>4.2 Deploy to VM4001 (vboxsf write-through workaround until 0.144 fixed)</h3>
+<pre><code class="language-bash"># nvr recorder
+rsync -av --exclude=&#39;__pycache__&#39; --exclude=&#39;*.pyc&#39; \
+  ~/Desktop/dev_projects/nvr/recorder/src/ \
+  root@192.168.0.141:/rda/devel/nvr/recorder/src/
+
+# Restart recorder
+sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;systemctl restart recorder&#39;
+</code></pre>
+<h3>4.3 VM4001 POS config (via dview Setup OR direct DB write)</h3>
+<p>These settings are required for the scenarios to behave deterministically.</p>
+<pre><code class="language-sql">-- VM4001 local mariadb (NOT staging)
+USE dtech;
+
+-- POS for paired mode (Test POS row, bID assumed = 1 — confirm with SELECT first)
+UPDATE PosType19 SET
+  sStartTransactionInbound  = &#39;Scale_TruckEntering&#39;,
+  sFinishTransactionInbound = &#39;Ticket_Received&#39;,
+  sStartTransaction         = &#39;Scale_TruckEntering&#39;,
+  sFinishTransaction        = &#39;Ticket_Received&#39;,
+  bPairTimeout              = 60,           -- 60 min, NOT prod 480
+  sMatchInbound             = &#39;truck&#39;,      -- correlation key
+  sTareField                = &#39;ticket&#39;,     -- discriminator field
+  sTareValue                = &#39;0&#39;,          -- discriminator value
+  sMeasurementSource        = &#39;192.168.0.69:88&#39;,
+  fMeasurement              = 1,
+  fPermitValidation         = 0,            -- off unless QR test
+  fCloudUpload              = 1,
+  sTicketSource             = &#39;apex&#39;        -- or &#39;fastweigh&#39; for those tests
+WHERE bID = 1;
+
+-- Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;) controls fPairTareLoadout globally
+INSERT INTO Misc (sCategory, sName, sValue) VALUES (&#39;system&#39;, &#39;paired-tare-loadout&#39;, &#39;on&#39;)
+  ON DUPLICATE KEY UPDATE sValue = &#39;on&#39;;   -- &#39;on&#39; for paired tests, &#39;off&#39; for standalone
+</code></pre>
+<p>Per memory <code>project_globalize_paired_toggle</code>: the toggle lives in <code>Misc</code>, not
+<code>PosType19.fPairTareLoadout</code> anymore.</p>
+<h3>4.4 Cloud-upload enabled on VM4001</h3>
+<pre><code class="language-bash">sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;touch /root/.recorder_cloudsw&#39;
+sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;ls -la /root/.recorder_cloudsw&#39;
+</code></pre>
+<h3>4.5 Local cloudapi container</h3>
+<pre><code class="language-bash"># From cloudapi repo root
+docker compose up -d
+docker compose ps                  # cloudapi-app-1 must be Up
+curl -s http://localhost:8081/health   # should 200
+</code></pre>
+<h3>4.6 Spot-decoder live at 192.168.0.69 (optional, for measurement scenarios)</h3>
+<p>If running scenarios that need real measurement data:</p>
+<ul>
+<li>Spot-decoder daemon at 0.69:88 must be calibrated + reporting</li>
+<li>See memory <code>reference_spot_decoder</code></li>
+</ul>
+<p>If skipping: scenarios still pass; <code>AlertNoMeasurement</code> is the expected
+graceful failure mode.</p>
+<hr>
+<h2>5. The 6 scenarios (matrix)</h2>
+<p>Each scenario is <strong>one full transaction shape</strong> driven end-to-end. The shape
+column shows the events the recorder must emit (in order) for the test to
+be true-to-life.</p>
+<h3>Paired mode ON (<code>Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;)=&#39;on&#39;</code>)</h3>
+<h4>Scenario 1 — Happy pair (Apex)</h4>
+<p><strong>Goal:</strong> prove the canonical paired flow works with full event surround.</p>
+<p><strong>Tare half (Scale 1):</strong></p>
+<ol>
+<li><code>ScaleTruckEntering</code> ← drive via scale weight crossing entering threshold</li>
+<li><code>ScaleTruckOn</code> ← scale stabilized</li>
+<li><code>QrRead</code> ← QR camera decoded driver permit</li>
+<li><code>MeasurementRecorded</code> ← spot-decoder posted axle/distance</li>
+<li><code>TicketReceived</code> ← Apex XML drop with <code>&lt;ticket&gt;0&lt;/ticket&gt;&lt;truck&gt;T-S1-001&lt;/truck&gt;...</code>
+↪ at cloud boundary, renamed to <strong><code>TareTicketReceived</code></strong> because <code>_tare=True</code></li>
+<li><code>ScaleTruckLeft</code> ← truck rolled off</li>
+</ol>
+<p><strong>Loadout half (Scale 1 or 2):</strong>
+7. <code>ScaleTruckEntering</code>
+8. <code>ScaleTruckOn</code>
+9. <code>QrRead</code>
+10. <code>TicketReceived</code> ← Apex XML drop with <code>&lt;ticket&gt;1001&lt;/ticket&gt;&lt;truck&gt;T-S1-001&lt;/truck&gt;...</code>
+    (same <code>&lt;truck&gt;</code> value as tare → matched via <code>sMatchInbound=&#39;truck&#39;</code>)
+11. <code>ScaleTruckLeft</code></p>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li><strong>1 row</strong> in <code>SW_Transaction</code>, with:<ul>
+<li><code>bTicket = 1001</code> (loadout)</li>
+<li><code>sTruck = &#39;T-S1-001&#39;</code> (loadout&#39;s <code>&lt;truck&gt;</code> value)</li>
+<li><code>sCorrelationId</code> non-NULL</li>
+<li><code>sTag = &#39;truck&#39;</code></li>
+</ul>
+</li>
+<li><strong>~10-11 rows</strong> in <code>SW_Event</code> for this <code>bTransaction</code>, including:<ul>
+<li>2× <code>ScaleTruckEntering</code>, 2× <code>ScaleTruckOn</code>, 2× <code>ScaleTruckLeft</code></li>
+<li>2× <code>QrRead</code></li>
+<li>1× <code>MeasurementRecorded</code> (tare side only — per <code>project_jahna_save_on_tare_side</code>)</li>
+<li>1× <strong><code>TareTicketReceived</code></strong> (with <code>tare:true</code> in sData)</li>
+<li>1× <code>TicketReceived</code> (loadout)</li>
+</ul>
+</li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>1 row showing <code>T-S1-001</code> as the truck name (not <code>???</code>)</li>
+<li>Click row → events list shows tare half dim/distinct from loadout half</li>
+<li>Tare ticket icon visually distinct from loadout (color, not just opacity — see §8 portal color decision)</li>
+<li>All event icons render: scale, qr/lpr, ticket (×2), measurement, alert (if any)</li>
+</ul>
+<hr>
+<h4>Scenario 2 — Orphan tare expiry (paired ON)</h4>
+<p><strong>Goal:</strong> prove orphan-tare sweep fires <code>AlertTareWithoutLoadout</code> and uploads
+the tare even though no loadout arrived.</p>
+<p><strong>Tare half only:</strong></p>
+<ol>
+<li><code>ScaleTruckEntering</code></li>
+<li><code>ScaleTruckOn</code></li>
+<li><code>QrRead</code></li>
+<li><code>MeasurementRecorded</code></li>
+<li><code>TicketReceived</code> ← Apex XML <code>&lt;ticket&gt;0&lt;/ticket&gt;&lt;truck&gt;T-S2-002&lt;/truck&gt;...</code></li>
+<li><code>ScaleTruckLeft</code></li>
+</ol>
+<p><strong>Wait <code>bPairTimeout + 1 min</code> (61 min with testbed config).</strong> During this
+wait, the periodic expiry sweep in <code>thread_truck_transaction._expireInboundCache</code>
+detects the stale tare and:</p>
+<ul>
+<li>Tags every event in <code>truck.cloudEvents</code> with <code>_tare=True</code></li>
+<li>Fires <code>AlertTareWithoutLoadout</code> event onto the truck</li>
+<li>Calls <code>cloudAdd</code> → upload as orphan transaction</li>
+</ul>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li>1 row in <code>SW_Transaction</code>:<ul>
+<li><code>bTicket = NULL</code> (per <code>TareTicketReceived</code> handler — does NOT set bTicket)</li>
+<li><code>sTruck = NULL</code> (same reason — does NOT set sTruck)</li>
+<li><code>sCorrelationId</code> non-NULL (one-off)</li>
+</ul>
+</li>
+<li>SW_Event rows include:<ul>
+<li><code>TareTicketReceived</code> (carries the tare ticket # in event.bTicket, not in SW_Transaction.bTicket)</li>
+<li><code>AlertTareWithoutLoadout</code></li>
+<li>all the surrounding tare-half events tagged <code>tare:true</code></li>
+</ul>
+</li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>Row appears with truck name = &#39;???&#39; (because SW_Transaction.sTruck is NULL — this is the
+CORRECT behavior for an orphan tare, NOT the same bug as scenarios 5/6 below)</li>
+<li><code>AlertTareWithoutLoadout</code> icon (goldenrod exclamation) visible</li>
+<li>Click row → tare event has tare flag/color</li>
+<li>Searchable by tare ticket number via SW_Event.bTicket — verify with Ticket Search</li>
+</ul>
+<hr>
+<h4>Scenario 3 — Loadout without tare (paired ON)</h4>
+<p><strong>Goal:</strong> prove loadout arriving with no cached tare fires
+<code>AlertLoadoutWithoutTare</code> and uploads standalone.</p>
+<p><strong>Loadout half only (no prior tare):</strong></p>
+<ol>
+<li><code>ScaleTruckEntering</code></li>
+<li><code>ScaleTruckOn</code></li>
+<li><code>QrRead</code></li>
+<li><code>TicketReceived</code> ← Apex XML <code>&lt;ticket&gt;3001&lt;/ticket&gt;&lt;truck&gt;T-S3-003&lt;/truck&gt;...</code>
+↪ paired logic looks for cached tare by <code>truck=&#39;T-S3-003&#39;</code> → MISS → fires <code>AlertLoadoutWithoutTare</code> inline</li>
+<li><code>ScaleTruckLeft</code></li>
+</ol>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li>1 row in SW_Transaction:<ul>
+<li><code>bTicket = 3001</code> (loadout TicketReceived sets it normally)</li>
+<li><code>sTruck = &#39;T-S3-003&#39;</code></li>
+</ul>
+</li>
+<li>SW_Event rows:<ul>
+<li><code>TicketReceived</code> (NOT renamed — this is loadout-side, <code>_tare</code> never set)</li>
+<li><code>AlertLoadoutWithoutTare</code></li>
+<li>all surrounding events</li>
+</ul>
+</li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>Row with truck name <code>T-S3-003</code></li>
+<li>Goldenrod <code>AlertLoadoutWithoutTare</code> icon</li>
+<li>No tare-half visible (because there isn&#39;t one)</li>
+</ul>
+<hr>
+<h4>Scenario 4 — Interleaved paired pairs</h4>
+<p><strong>Goal:</strong> prove <code>sMatchInbound=&#39;truck&#39;</code> correctly correlates two
+simultaneously-cached tares with their respective loadouts.</p>
+<p><strong>Sequence:</strong></p>
+<ol>
+<li>Tare for truck A — <code>&lt;ticket&gt;0&lt;/ticket&gt;&lt;truck&gt;T-S4-A&lt;/truck&gt;</code></li>
+<li>Tare for truck B — <code>&lt;ticket&gt;0&lt;/ticket&gt;&lt;truck&gt;T-S4-B&lt;/truck&gt;</code></li>
+<li>Loadout for truck A — <code>&lt;ticket&gt;4001&lt;/ticket&gt;&lt;truck&gt;T-S4-A&lt;/truck&gt;</code></li>
+<li>Loadout for truck B — <code>&lt;ticket&gt;4002&lt;/ticket&gt;&lt;truck&gt;T-S4-B&lt;/truck&gt;</code></li>
+</ol>
+<p>Each tare and loadout is preceded by <code>ScaleTruckEntering</code> etc. as in S1.</p>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li><strong>2 rows</strong> in SW_Transaction:<ul>
+<li>Row A: <code>bTicket=4001</code>, <code>sTruck=&#39;T-S4-A&#39;</code></li>
+<li>Row B: <code>bTicket=4002</code>, <code>sTruck=&#39;T-S4-B&#39;</code></li>
+</ul>
+</li>
+<li>No cross-contamination: A&#39;s events are not on B&#39;s row and vice versa</li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>Two distinct rows for <code>T-S4-A</code> and <code>T-S4-B</code>, each with their tare + loadout events</li>
+</ul>
+<hr>
+<h3>Paired mode OFF (<code>Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;)=&#39;off&#39;</code>)</h3>
+<h4>Scenario 5 — Standalone tare (Apex, paired OFF)</h4>
+<p><strong>Goal:</strong> prove paired OFF produces NO rename, NO cache, standalone behavior
+identical to legacy.</p>
+<ol>
+<li><code>ScaleTruckEntering</code></li>
+<li><code>ScaleTruckOn</code></li>
+<li><code>QrRead</code></li>
+<li><code>MeasurementRecorded</code></li>
+<li><code>TicketReceived</code> ← Apex XML <code>&lt;ticket&gt;0&lt;/ticket&gt;&lt;truck&gt;T-S5-005&lt;/truck&gt;...</code>
+↪ NO rename at cloud (paired OFF → <code>_tare</code> never set)</li>
+<li><code>ScaleTruckLeft</code></li>
+</ol>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li>1 row in SW_Transaction:<ul>
+<li><code>bTicket = 0</code> (yes, tare ticket &quot;0&quot; — legacy behavior for tare-only customers; this
+sometimes shows oddly in portal as ticket-zero but the truck name is the real ID)</li>
+<li><code>sTruck = &#39;T-S5-005&#39;</code></li>
+</ul>
+</li>
+<li>SW_Event: <code>TicketReceived</code> (NOT <code>TareTicketReceived</code>)</li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>1 row with truck name <code>T-S5-005</code></li>
+<li>Event named <code>TicketReceived</code>, color/icon = canonical loadout style</li>
+</ul>
+<hr>
+<h4>Scenario 6 — Standalone loadout (Apex, paired OFF)</h4>
+<p><strong>Goal:</strong> mirror of S5 with a non-tare ticket number.</p>
+<p>1-6. Same as S5 but with <code>&lt;ticket&gt;6001&lt;/ticket&gt;&lt;truck&gt;T-S6-006&lt;/truck&gt;</code></p>
+<p><strong>Expected outcome on staging RDS:</strong></p>
+<ul>
+<li>1 row in SW_Transaction:<ul>
+<li><code>bTicket = 6001</code></li>
+<li><code>sTruck = &#39;T-S6-006&#39;</code></li>
+</ul>
+</li>
+<li>SW_Event: <code>TicketReceived</code></li>
+</ul>
+<p><strong>Expected outcome in portal:</strong></p>
+<ul>
+<li>1 row with truck name <code>T-S6-006</code>, normal loadout icon</li>
+</ul>
+<hr>
+<h3>Optional Scenario 7 — Happy pair via FastWeigh webhook</h3>
+<p>Run S1 again, but instead of dropping Apex XML on VM4001, POST to local
+cloudapi&#39;s <code>/sw/webhooks/fastweigh</code> endpoint and let it WebSocket-push to
+the recorder. Verifies the FastWeigh ingress path.</p>
+<p>Uses <code>cloudapi/app/tests/mock-fastweigh-webhook.js</code> with the truck/ticket
+values pinned to whatever you&#39;d use in S1.</p>
+<p>Expected outcomes are identical to S1 EXCEPT:</p>
+<ul>
+<li>SW_WebhookLog rows present for each ticket (2 rows: tare + loadout)</li>
+<li><code>provider=&#39;fastweigh&#39;</code> tag on each ticket payload in the recorder log</li>
+<li>Same <code>TareTicketReceived</code> rename at cloud boundary</li>
+</ul>
+<hr>
+<h2>6. Verification — per layer recipes</h2>
+<p>For each scenario, walk all 4 layers. PASS criteria below.</p>
+<h3>6.1 Layer 1 — recorder on VM4001</h3>
+<p>Live log tail:</p>
+<pre><code class="language-bash">sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;journalctl -u recorder -f -n 100&#39;
+</code></pre>
+<p>Look for (per scenario):</p>
+<ul>
+<li><code>Received event: ScaleTruckEntering</code> — start of each transaction</li>
+<li><code>Received event: TicketReceived &lt;number&gt;</code> — ticket arrived</li>
+<li><code>tare cached: ticket=&lt;number&gt; truck=&lt;truck&gt;</code> — paired-mode caching (S1, S4)</li>
+<li><code>paired match found</code> (or similar) when loadout matches cached tare (S1, S4)</li>
+<li><code>orphan tare expired</code> (S2) — should appear ~bPairTimeout later</li>
+<li><code>loadout without cached tare</code> (S3)</li>
+<li><code>Cloud ticket received</code> — only for FastWeigh path (S7)</li>
+</ul>
+<p>Local NVR DB inspection (events buffered while cloud upload retries):</p>
+<pre><code class="language-bash">sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;mysql -u root dtech -e &quot;
+  SELECT id, sName, bTicket, bTransaction, dTimestamp
+  FROM SW_Event ORDER BY id DESC LIMIT 30;&quot;&#39;
+</code></pre>
+<p><strong>PASS:</strong> events fire in the expected order, with the expected names.</p>
+<h3>6.2 Layer 2 — cloudapi staging logs</h3>
+<pre><code class="language-bash"># Tail cloudapi-staging logs (awslogs)
+awslogs get /aws/elasticbeanstalk/cloudapi-staging/var/log/web.stdout.log \
+  --start=&#39;10m ago&#39; --watch | grep -E &#39;sw/addPos|sw/webhooks|TareTicket|sCorrelationId&#39;
+</code></pre>
+<p>Look for:</p>
+<ul>
+<li><code>POST /sw/addPos 200</code> per upload</li>
+<li><code>FastWeigh ticket_event sent to NVR</code> (S7 only)</li>
+<li>No <code>500</code>, <code>502</code>, or stack traces</li>
+</ul>
+<p>If you ran cloudapi locally (Docker on home Mac via reverse tunnel from VM
+upload):</p>
+<pre><code class="language-bash">docker logs -f cloudapi-app-1 | grep -E &#39;sw/addPos|sCorrelationId|TareTicket&#39;
+</code></pre>
+<p><strong>PASS:</strong> every recorder upload reached cloudapi with 200; webhook logs
+match for FastWeigh.</p>
+<h3>6.3 Layer 3 — staging RDS rows</h3>
+<p>Verified by the standard SW_Transaction + SW_Event queries.</p>
+<p>Note: the staging RDS connection is via the SSH tunnel on port 3307.</p>
+<pre><code class="language-bash">RDS_USER=&quot;$(~/.local/bin/claude-op read &#39;op://Claude/cloudapi-staging-rds/username&#39;)&quot;
+RDS_PW=&quot;$(~/.local/bin/claude-op read &#39;op://Claude/cloudapi-staging-rds/password&#39;)&quot;
+
+# Recent transactions for serial 4001 (VM4001)
+mysql -h 127.0.0.1 -P 3307 -u &quot;$RDS_USER&quot; -p&quot;$RDS_PW&quot; cloudapi_staging -e &quot;
+  SELECT id, bSerial, bScale, dStart, dEnd, bTicket, sTruck, sTag,
+         LEFT(sCorrelationId, 16) AS corr16
+  FROM SW_Transaction
+  WHERE bSerial = 4001 AND dStart &gt; NOW() - INTERVAL 30 MINUTE
+  ORDER BY id DESC LIMIT 20;
+&quot;
+
+# Events for a specific SW_Transaction.id
+TID=4977800   # the ID from above
+mysql -h 127.0.0.1 -P 3307 -u &quot;$RDS_USER&quot; -p&quot;$RDS_PW&quot; cloudapi_staging -e &quot;
+  SELECT id, sName, bTicket, dTimestamp, LEFT(sData, 80) AS sData_snippet
+  FROM SW_Event
+  WHERE bTransaction = $TID
+  ORDER BY dTimestamp ASC;
+&quot;
+
+# Webhook log (S7 only)
+mysql -h 127.0.0.1 -P 3307 -u &quot;$RDS_USER&quot; -p&quot;$RDS_PW&quot; cloudapi_staging -e &quot;
+  SELECT id, sSvixId, sProvider, sEventType, sStatus, bSerial, dCreatedAt
+  FROM SW_WebhookLog
+  WHERE dCreatedAt &gt; NOW() - INTERVAL 30 MINUTE
+  ORDER BY id DESC LIMIT 10;
+&quot;
+</code></pre>
+<p><strong>PASS criteria per scenario:</strong> see §5 expected outcomes. Key checks:</p>
+<ul>
+<li>Row count matches expected (1 for S1/2/3/5/6, 2 for S4, 2+webhook log for S7)</li>
+<li><code>sTruck</code> populated where expected (S1, S3, S4, S5, S6) and NULL where
+expected (S2 — orphan)</li>
+<li><code>bTicket</code> matches the loadout (S1, S3, S4) or the standalone (S5, S6) or
+NULL (S2)</li>
+<li>Event names include <code>TareTicketReceived</code> for tare halves of paired (S1,
+S2, S4) and <code>TicketReceived</code> for everything else</li>
+<li>No duplicate transactions per ticket (2x-bug regression check)</li>
+</ul>
+<h3>6.4 Layer 4 — staging portal UI</h3>
+<p>URL: <a href="http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/">http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/</a>
+Login: <code>admin@dividia.net</code> / <code>Dt=7799!</code></p>
+<p>Steps (manual):</p>
+<ol>
+<li><strong>Login</strong></li>
+<li>Top nav → <strong>transactions</strong></li>
+<li>Date picker → set to today (or whichever date the scenario ran)</li>
+<li>Location dropdown → &quot;Dividia - David Test&quot; (or whichever location matches <code>bSerial=4001</code>)</li>
+<li><strong>Confirm</strong>: each scenario&#39;s expected row(s) visible</li>
+<li><strong>Truck name column</strong> must NOT be <code>???</code> for S1, S3, S4, S5, S6<ul>
+<li>It SHOULD be <code>???</code> for S2 (orphan tare — correct behavior)</li>
+</ul>
+</li>
+<li>Click the truck name on far left → expanded events row appears below
+(per David&#39;s UI tip 2026-06-03)</li>
+<li><strong>Confirm</strong> event icons render per expected color/shape:<ul>
+<li>Scale events: red truck</li>
+<li>Ticket / TareTicket: navy file (tare = different color per §8 decision)</li>
+<li>Measurement: teal ruler</li>
+<li>Alert: goldenrod exclamation</li>
+<li>LPR / QR: purple circle</li>
+</ul>
+</li>
+<li><strong>Visual check</strong>: tare and loadout halves are visually distinguishable
+in S1 and S4</li>
+</ol>
+<p>Browse tool automation (optional):</p>
+<pre><code class="language-bash"># Start a browse session and navigate
+$B &#39;open http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/&#39;
+$B &#39;fill {&quot;id&quot;:&quot;email&quot;,&quot;text&quot;:&quot;admin@dividia.net&quot;}&#39;
+$B &#39;fill {&quot;id&quot;:&quot;password&quot;,&quot;text&quot;:&quot;Dt=7799!&quot;}&#39;
+$B &#39;click {&quot;text&quot;:&quot;Login&quot;}&#39;
+$B &#39;click {&quot;text&quot;:&quot;transactions&quot;}&#39;
+# Then screenshot for visual verification:
+$B &#39;screenshot transactions-after-scenario.png&#39;
+</code></pre>
+<p>Helper script <code>verify-portal.sh</code> automates the above with annotated screenshots.</p>
+<p><strong>PASS:</strong> truck names visible, event icons correct, paired tare visually
+distinguishable.</p>
+<hr>
+<h2>7. Expected failure modes &amp; their alerts</h2>
+<p>When the system is NOT in a perfect state, here&#39;s what should appear. Use
+this table to interpret unexpected results during scenario testing.</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Symptom in staging RDS</th>
+<th>Symptom in portal</th>
+<th>Alert event</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Ticket payload missing <code>truck</code> field</td>
+<td><code>SW_Transaction.sTruck = NULL</code></td>
+<td>Truck column = <code>???</code></td>
+<td>none — <code>??? </code>is the indicator</td>
+</tr>
+<tr>
+<td>QR validation on (<code>fPermitValidation=1</code>), no QrRead during transaction</td>
+<td><code>SW_Event</code> has <code>AlertNoQrScan</code> row</td>
+<td>Goldenrod alert icon</td>
+<td><code>AlertNoQrScan</code> + fallback image cam=97</td>
+</tr>
+<tr>
+<td>Measurement on (<code>fMeasurement=1</code>), spot-decoder unreachable</td>
+<td><code>SW_Event</code> has <code>AlertNoMeasurement</code> row</td>
+<td>Goldenrod alert icon</td>
+<td><code>AlertNoMeasurement</code> + fallback image cam=99</td>
+</tr>
+<tr>
+<td>Stale <code>sMeasurementSource</code> (e.g., <code>0.187</code> instead of <code>0.69</code>)</td>
+<td><code>AlertNoMeasurement</code> due to unreachable IP</td>
+<td>Goldenrod alert icon</td>
+<td>Same as above; check recorder log for &quot;measurement client error&quot;</td>
+</tr>
+<tr>
+<td>Paired ON, loadout never arrives within <code>bPairTimeout</code></td>
+<td><code>bTicket=NULL, sTruck=NULL</code>, <code>TareTicketReceived</code> event row, <code>AlertTareWithoutLoadout</code> event</td>
+<td>Truck=<code>???</code>, goldenrod alert</td>
+<td><code>AlertTareWithoutLoadout</code></td>
+</tr>
+<tr>
+<td>Paired ON, loadout arrives no cached tare</td>
+<td>Normal loadout row + <code>AlertLoadoutWithoutTare</code> event</td>
+<td>Goldenrod alert</td>
+<td><code>AlertLoadoutWithoutTare</code></td>
+</tr>
+<tr>
+<td>2x-bug regression (websocket fan-out unfiltered)</td>
+<td>2 SW_Transaction rows for same ticket, different <code>sCorrelationId</code></td>
+<td>2 portal rows for one truck visit</td>
+<td>none — count check is the indicator</td>
+</tr>
+<tr>
+<td>Provider mismatch (<code>PosType19.sTicketSource=&#39;apex&#39;</code> but webhook arrives)</td>
+<td>Recorder log &quot;PROVIDER MISMATCH&quot; errMsg, but processes anyway</td>
+<td>Normal row</td>
+<td>none — log-only</td>
+</tr>
+<tr>
+<td>Apex XML malformed</td>
+<td>No SW_Transaction created; recorder log &quot;ticket parse error&quot;; XML file moved to a dead-letter folder</td>
+<td>No portal row</td>
+<td>none — log-only</td>
+</tr>
+<tr>
+<td>FastWeigh Svix signature invalid</td>
+<td><code>SW_WebhookLog.sStatus = &#39;failed&#39;</code>, no NVR push</td>
+<td>No portal row</td>
+<td>none — webhook log only</td>
+</tr>
+<tr>
+<td>FastWeigh duplicate svix-id</td>
+<td><code>SW_WebhookLog.sStatus = &#39;duplicate&#39;</code>, no second NVR push</td>
+<td>One row only</td>
+<td>none — webhook log only</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>8. Open decisions affecting verification</h2>
+<p>These need to be settled before all scenarios pass cleanly.</p>
+<h3>8.1 Tare portal color (Task #2)</h3>
+<p>Currently both <code>TicketReceived</code> and <code>TareTicketReceived</code> render <code>navy + FaFileInvoice + opacity 0.5 for tare</code> in <code>scalewatcher/src/components/ transaction_board/Table.js:297-309</code>. The eyeball test reads them as &quot;same.&quot;</p>
+<p><strong>Pending David decision:</strong> what color for the tare ticket icon?</p>
+<ul>
+<li>Recommend <code>teal</code> (matches <code>MeasurementRecorded</code>, reads as &quot;auxiliary
+data event&quot;)</li>
+<li>Alternatives: <code>slategray</code>, <code>darkviolet</code></li>
+</ul>
+<p>Until decided, scenarios S1, S2, S4 will pass DB-side but fail the &quot;visually
+distinguishable&quot; portal eyeball test.</p>
+<h3>8.2 Debug-only payload fields (Task #5)</h3>
+<p>Plan: gate behind <code>Misc(&#39;system&#39;,&#39;debug-tag-events&#39;)=&#39;on&#39;</code>. When on, every
+event payload includes:</p>
+<ul>
+<li><code>_debug_mode = &#39;paired&#39; | &#39;unpaired&#39;</code></li>
+<li><code>_debug_ticket_source = &#39;apex&#39; | &#39;fastweigh&#39; | &#39;databridge&#39;</code></li>
+</ul>
+<p>Off by default in prod. Lets testers visually verify mode + source via
+event sData inspection in portal without code archaeology.</p>
+<h3>8.3 Testbed <code>bPairTimeout</code> value (Task #4)</h3>
+<p>Production default is 480 min (8h). Testbed override = 60 min so orphan-tare
+expiry (S2) is visible within a session. Setup script writes this; manual
+verification: <code>SELECT bPairTimeout FROM PosType19 WHERE bID = 1;</code></p>
+<hr>
+<h2>9. Common gotchas</h2>
+<h3>9.1 sMeasurementSource IP staleness</h3>
+<p>Symptom: <code>AlertNoMeasurement</code> events on every scenario.
+Cause: PosType19.sMeasurementSource pinned to old IP (e.g., 0.187 instead of 0.69).
+Fix: <code>UPDATE PosType19 SET sMeasurementSource=&#39;192.168.0.69:88&#39; WHERE bID=1;</code> then restart recorder.</p>
+<h3>9.2 Paired toggle source confusion</h3>
+<p>Symptom: setting <code>PosType19.fPairTareLoadout</code> has no effect.
+Cause: as of 2026-06-02 (commit <code>336dadc28</code>), the toggle moved to <code>Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;)</code>. The per-POS column is dropped.
+Fix: write to <code>Misc</code> table, not <code>PosType19</code>. See <code>project_globalize_paired_toggle</code>.</p>
+<h3>9.3 Off-string boolean regression</h3>
+<p>Symptom: paired mode behaves as ON even when <code>Misc.sValue=&#39;off&#39;</code>.
+Cause: <code>bool(&#39;off&#39;)</code> is <code>True</code> in Python (any non-empty string is truthy). Pre-2026-06-02 bug.
+Fix: ensured by commit <code>977147f14</code> (explicit string compare). Verify with
+<code>grep -n &#39;paired-tare-loadout&#39; recorder/src</code> — should compare against <code>&#39;on&#39;</code>.</p>
+<h3>9.4 2x cloud upload (multi-scale NVRs)</h3>
+<p>Symptom: 2 SW_Transaction rows per ticket on multi-scale NVRs.
+Cause: <code>thread_cloud_websocket</code> fans every ticket event to all POS threads. Pre-fix, each fan-out fresh-sCorrelationId&#39;d and defeated dedup.
+Fix: ensured by commit <code>cd1ae227c</code> (port routing in <code>addEvent</code>). Verify with
+<code>grep -n &#39;_port&#39; recorder/src/scalewatcher/thread_truck_transaction.py</code>.</p>
+<h3>9.5 dview test-api session modal</h3>
+<p>If using dview test-api for orchestration, a stale session modal blocks input. Per memory <code>feedback_dview_modal_blocks_input</code>, modals are invisible to default screenshot — use <code>?mode=robot</code> or probe via <code>dismiss-modal {&quot;text&quot;:&quot;Cancel&quot;}</code>.</p>
+<h3>9.6 0.144 build host broken</h3>
+<p>The canonical deploy path (build on 0.144 → VirtualBox VMs) is broken. Workaround: direct rsync to VM4001 — <code>vboxsf</code> writes through. See memory <code>project_dot144_broken_state</code>.</p>
+<hr>
+<h2>10. Scripts (in <code>scripts/e2e/</code>)</h2>
+<p>Each script is idempotent and prints PASS/FAIL with the SW_Transaction.id
+for portal verification.</p>
+<table>
+<thead>
+<tr>
+<th>Script</th>
+<th>What it does</th>
+<th>Inputs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>setup-once.sh</code></td>
+<td>One-time per branch: deploys to VM4001, configures PosType19 + Misc, restarts recorder, asserts pre-conditions</td>
+<td>none (uses env + 1P vault)</td>
+</tr>
+<tr>
+<td><code>scenario.sh N</code></td>
+<td>Runs scenario N (1-7), all 4 layers verified</td>
+<td><code>N</code> = scenario number; flags: <code>--portal-only</code>, <code>--no-vm-deploy</code></td>
+</tr>
+<tr>
+<td><code>run-all.sh</code></td>
+<td>Runs scenarios 1-6 in sequence, prints summary table</td>
+<td><code>--include-fastweigh</code> to add S7</td>
+</tr>
+<tr>
+<td><code>lib/inject-apex.sh</code></td>
+<td>Drops one Apex XML ticket on VM4001 inbound dir</td>
+<td>ticket #, truck name, plant, optional gross</td>
+</tr>
+<tr>
+<td><code>lib/inject-fastweigh.sh</code></td>
+<td>POSTs one Svix-signed ticket.created to local cloudapi</td>
+<td>ticket #, truck name</td>
+</tr>
+<tr>
+<td><code>lib/inject-scale.sh</code></td>
+<td>Forces <code>ScaleTruckEntering</code>/<code>On</code>/<code>Leaving</code> on VM4001 via dview-test-api OR direct dispatcher injection</td>
+<td>scale ID, action</td>
+</tr>
+<tr>
+<td><code>lib/inject-qr.sh</code></td>
+<td>Forces a <code>QrRead</code> event via dispatcher injection</td>
+<td>QR text</td>
+</tr>
+<tr>
+<td><code>lib/inject-measurement.sh</code></td>
+<td>Forces <code>MeasurementRecorded</code> (used when spot-decoder not live)</td>
+<td>axle count, distance ft/in</td>
+</tr>
+<tr>
+<td><code>lib/verify-nvr.sh</code></td>
+<td>Checks recorder journalctl + local NVR DB</td>
+<td>scenario name + expected events</td>
+</tr>
+<tr>
+<td><code>lib/verify-cloud.sh</code></td>
+<td>Queries staging RDS for SW_Transaction + SW_Event rows</td>
+<td>scenario name + expected outcome</td>
+</tr>
+<tr>
+<td><code>lib/verify-portal.sh</code></td>
+<td>Browse-tool screenshot + DOM assertion against staging portal</td>
+<td>scenario name</td>
+</tr>
+<tr>
+<td><code>templates/apex-tare.xml.tpl</code></td>
+<td>Apex tare ticket XML template (<code>{{TICKET}}</code>, <code>{{TRUCK}}</code>, etc.)</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>templates/apex-loadout.xml.tpl</code></td>
+<td>Apex loadout ticket XML template</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>templates/fastweigh-ticket-created.json.tpl</code></td>
+<td>FastWeigh JSON webhook template</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>Status as of this runbook landing:</strong> the scripts are stubbed; the
+runbook is the authoritative reference. Fill in scripts incrementally; the
+manual recipes in §6 always work.</p>
+<hr>
+<h2>11. Companion unit tests (recorder/tests/)</h2>
+<p>The runbook&#39;s 6 scenarios also exist as <strong>fast unit tests</strong> in
+<code>recorder/tests/test_sw_paired_scenario_matrix.py</code> (file to create alongside
+the rename PR). These run in <code>docker/run-unit-tests.sh</code> and catch
+structural regressions in seconds without needing the VM testbed.</p>
+<p>Convention mirrors existing scalewatcher test files:</p>
+<ul>
+<li><code>_FakeTicket</code>, <code>_FakeApexTicket</code>, <code>_FakeCloudTicket</code> helpers</li>
+<li><code>_FakeSelf</code> to stub <code>ThreadTruckTransaction</code> with overridable config</li>
+<li>One <code>TestCase</code> per scenario shape</li>
+<li>Inline XML strings, no external fixture files</li>
+</ul>
+<p>The unit tests verify the <strong>structural</strong> contract (event names, ordering,
+rename trigger conditions, tare flag propagation, sCorrelationId
+generation). The E2E runbook verifies the <strong>integrated</strong> contract (cloud
+handler, RDS rows, portal rendering). Both must pass to ship.</p>
+<hr>
+<h2>12. Maintenance</h2>
+<p>Update this runbook when ANY of these change:</p>
+<ul>
+<li>A new event type lands in <code>recorder/src/scalewatcher/event.py</code></li>
+<li>The <code>transaction.js</code> per-event-name handler branches change</li>
+<li>Paired-mode lifecycle changes (cache, expiry, correlation)</li>
+<li><code>sMatchInbound</code> semantics change</li>
+<li>Portal event rendering changes (colors, icons, opacity)</li>
+<li>New POS config columns affect transaction lifecycle</li>
+</ul>
+<p>Companion checklist whenever you ship a change:</p>
+<ol>
+<li>Bump §1 wire-protocol naming note if events renamed</li>
+<li>Add a row to §7 failure modes if you added an alert type</li>
+<li>Add a gotcha to §9 if you debugged something non-obvious</li>
+<li>Add or extend a scenario in §5 if you added a new transaction shape</li>
+</ol>
+<p>Run <code>./build-html.sh</code> from this docs directory after editing this file to
+refresh the bookmarked HTML index (per memory
+<code>feedback_jahna_html_rebuild</code>).</p>
+<hr>
+<h2>13. Change log</h2>
+<ul>
+<li><strong>2026-06-03</strong> — Initial draft. Authored after eyeball-test feedback identified that the 2026-06-02 paired-mode shipment was unit-tested + bytes-on-RDS verified but not portal-verified. Coverage gap diagnosed: hand-curl bypassed the recorder lifecycle, omitting <code>ScaleTruckEntering</code>, <code>truck</code> field, QR, Measurement. Six-scenario matrix designed to close the gap permanently.</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>

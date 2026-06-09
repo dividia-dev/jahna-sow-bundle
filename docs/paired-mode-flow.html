@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paired-mode flow — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html" class="active">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Paired-mode flow</div></header>
+    <h1>Paired-Mode Flow Reference</h1>
+<p>How the NVR recorder and CloudAPI handle scale-watcher transactions in
+every combination of: legacy vs paired code path, single-scale vs
+two-scale layout, cloud-uploading vs local-only.</p>
+<p>This document reflects the code on branch <code>tasks/86b9y6jc5</code> after
+commits <code>7aa042f67</code> (paired rename) and <code>172abb29f</code> (durability fix) on
+the nvr side and <code>77c8faf</code> (sCorrelationId dedup) on the cloudapi side.</p>
+<blockquote>
+<p><strong>CONFIRMED CURRENT 2026-06-02:</strong> the <code>sTareField</code>/<code>sTareValue</code> discriminator + <code>sMatchInbound</code> field described below <strong>is</strong> the authoritative correlation mechanism for both Apex and FastWeigh ticket sources. Tare↔loadout keys on <code>truck_id</code> by default (configurable). Any older docs in the hub referencing <code>transactionGuid</code> or <code>ticketPending</code> GraphQL as the correlation source are <strong>superseded</strong> — this file is current.</p>
+</blockquote>
+<hr>
+<h2>Configuration switches that select the path</h2>
+<p>Three switches determine which path a transaction follows:</p>
+<table>
+<thead>
+<tr>
+<th>Switch</th>
+<th>Where</th>
+<th>Default</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PosType19.fPairTareLoadout</code></td>
+<td>DB column on <code>PosType19</code> row</td>
+<td><code>false</code></td>
+<td>Master switch.  Enables paired-mode for that POS.</td>
+</tr>
+<tr>
+<td><code>/root/.recorder_cloudsw</code> file presence</td>
+<td>NVR filesystem</td>
+<td>absent</td>
+<td>Enables cloud-SW uploader thread.  Created by Dividia support, not the operator.</td>
+</tr>
+<tr>
+<td><code>PosType19.bPairTimeout</code></td>
+<td>DB column on <code>PosType19</code> row</td>
+<td><code>480</code> (minutes)</td>
+<td>How long a cached tare may sit before the expiry sweeper ships it as an orphan tare transaction.</td>
+</tr>
+</tbody></table>
+<p>The &quot;scale layout&quot; — single scale (truck tares AND loads on the same
+scale) vs two-scale (tare on scale A, loadout on scale B) — is <strong>not</strong> a
+config switch.  It&#39;s a property of how the customer set up their POS
+in dview (one POSType19 entry per scale).  Whether the truck is taring
+or loading is determined by the ticket data via the
+<code>sTareField</code>/<code>sTareValue</code> discriminator.</p>
+<p>The default values mean: a fresh customer install runs identical to the
+APEX flow that&#39;s been in production for years.  Paired-mode only
+activates if the customer explicitly turns <code>fPairTareLoadout=true</code> on a
+PosType19, which requires going through the dview setup UI (admin user
+sees the section only if cloud-SW is enabled).</p>
+<hr>
+<h2>Recorder flows</h2>
+<h3>Path A — Legacy, no cloud-SW</h3>
+<p><strong>When:</strong> <code>fPairTareLoadout=false</code>, no <code>/root/.recorder_cloudsw</code> file.</p>
+<p>This is the original APEX flow that&#39;s been running for years on every
+APEX customer without cloud upload.</p>
+<p><strong>Flow:</strong></p>
+<ol>
+<li>Truck pulls onto scale, <code>Scale_TruckEntering</code> fires.</li>
+<li><code>ThreadTruckTransaction</code> state machine moves WAITING → PROCESSING.</li>
+<li>Events accumulate in <code>truck.cloudEvents[]</code> and images grab into
+<code>truck.imgs[]</code>: <code>Scale_TruckOn</code>, <code>Lpr_Read</code> (if LPR), <code>Valve_Opened</code>
+/<code>Valve_Closed</code> (if valve), <code>Ticket_Received</code> (when ticket arrives),
+<code>Scale_TruckLeaving</code>.</li>
+<li><code>_handleFinishedState</code> fires:<ul>
+<li><code>cloudAdd</code> dispatcher fires with <code>(bID, cloudEvents, imgs)</code> — but
+no listener is wired (cloud-SW thread didn&#39;t start because the gate
+file is absent), so the call is a no-op.</li>
+<li><code>_classifyPairedPhase</code> returns <code>None</code> (paired is off), so we drop
+past the paired branch.</li>
+<li><code>_saveStandardTicket</code> (or <code>_saveInboundTicket</code> for tare-side
+tickets where <code>bTicket==&#39;0&#39;</code>) writes the local PDF to <code>ticketsdir</code>.</li>
+</ul>
+</li>
+<li><code>_clearTruck</code> resets state to WAITING.</li>
+</ol>
+<p><strong>Result:</strong> local PDF on the NVR filesystem.  Operator views via dview&#39;s
+local playback search.  No cloud upload.  No paired cache writes.</p>
+<h3>Path B — Legacy, with cloud-SW</h3>
+<p><strong>When:</strong> <code>fPairTareLoadout=false</code>, <code>/root/.recorder_cloudsw</code> file
+present.</p>
+<p>This is the APEX cloud-SW flow that customers like Quikrete-Midlothian,
+Capitol-Aggregates, MMM-sites run today.</p>
+<p><strong>Flow:</strong></p>
+<ol>
+<li>Same steps 1–3 as Path A.</li>
+<li><code>_handleFinishedState</code> fires:<ul>
+<li><code>cloudAdd(bID, cloudEvents, imgs)</code> dispatches to
+<code>ThreadCloudSW.addEvent</code>.  That writes a JSON file to <code>clouddir</code>
+(with a fresh <code>sCorrelationId</code>), queues it for upload.</li>
+<li><code>_classifyPairedPhase</code> returns <code>None</code> (paired is off).</li>
+<li><code>_saveStandardTicket</code> / <code>_saveInboundTicket</code> writes the local PDF.</li>
+</ul>
+</li>
+<li><code>ThreadCloudSW.run()</code> loop picks the JSON file off the queue, POSTs
+to <code>&lt;cloud-api&gt;/sw</code>, deletes the file on 200 response.</li>
+</ol>
+<p><strong>Two-scale variant:</strong> if the customer has two PosType19 entries on the
+same NVR (one per scale), each scale cycle is its OWN independent
+cloudAdd → its OWN SW_Transaction in the cloud.  The cloud sees TWO
+rows per truck visit with no link between them.  The legacy
+<code>ApexInboundCache</code> (sProvider=<code>apex</code>) image-cache is what stitches the
+tare-side jpgs into the loadout-side LOCAL pdf — but that&#39;s
+filesystem-only, no cloud awareness.</p>
+<p><strong>Result:</strong> local PDF + one cloud transaction per scale cycle.</p>
+<h3>Path C — Paired, no cloud-SW</h3>
+<p><strong>When:</strong> <code>fPairTareLoadout=true</code>, no <code>/root/.recorder_cloudsw</code> file.</p>
+<p>This is a &quot;what if&quot; combination — not a customer configuration we
+expect to see in production, but useful to understand what happens.</p>
+<p><strong>Flow:</strong></p>
+<ol>
+<li>Same steps 1–3 as Path A: events accumulate in RAM.</li>
+<li><code>_handleFinishedState</code> fires:<ul>
+<li><code>_classifyPairedPhase</code> returns <code>&#39;tare&#39;</code> (if ticket has
+<code>bTicket==&#39;0&#39;</code> per default discriminator) OR <code>&#39;loadout&#39;</code>
+(otherwise).</li>
+<li>On <code>&#39;tare&#39;</code>: <code>_cachePairedTareTruck</code> pickles the full
+<code>TruckTransaction</code> into <code>ApexInboundLog.sPairedState</code>.  Function
+returns <code>STATE_WAITING</code> immediately — <code>cloudAdd</code> is NEVER called,
+<code>_saveStandardTicket</code> is NEVER called.</li>
+<li>On <code>&#39;loadout&#39;</code>: <code>_getHeldPairedTare</code> looks up the matching cached
+tare, merges its <code>cloudEvents</code> + <code>imgs</code> into the loadout truck.
+Then falls through:<ul>
+<li><code>cloudAdd</code> fires but has no listener (cloud-SW thread didn&#39;t
+start) — no-op.</li>
+<li><code>finalizePaired</code> deletes the cache row.</li>
+<li><code>_saveStandardTicket</code> writes the local PDF, which now includes
+the merged tare-side images.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ol>
+<p><strong>Result:</strong> local PDF on the NVR with both tare and loadout images
+combined.  NO cloud upload (gate file absent).  Tare-side scale events
+are LOST from the local PDF flow&#39;s perspective if the cycle is a tare
+cycle — <code>_saveStandardTicket</code> never runs for tare-only cycles in paired
+mode, so the tare local PDF that legacy customers got is no longer
+written.</p>
+<p><strong>Why this configuration is unusual:</strong> paired-mode was designed to
+collapse two scale cycles into ONE cloud transaction.  Without cloud-SW,
+the only effect is suppressing the tare-side local PDF.  Customers who
+don&#39;t use cloud-SW have no reason to turn paired-mode on, and the dview
+UI only shows the toggle when cloud-SW is enabled (per
+<code>ApexDialog.setPairedSectionVisible(checkHasCloudSw())</code>).  Operators
+can&#39;t reach this state through the UI without manual DB editing.</p>
+<h3>Path D — Paired, with cloud-SW (the Jahna case)</h3>
+<p><strong>When:</strong> <code>fPairTareLoadout=true</code>, <code>/root/.recorder_cloudsw</code> file
+present.</p>
+<p>This is the production target for Jahna and the FastWeigh integration.</p>
+<p><strong>Flow (tare cycle):</strong></p>
+<ol>
+<li>Truck pulls onto tare scale, <code>Scale_TruckEntering</code> fires.</li>
+<li>State machine moves WAITING → PROCESSING.</li>
+<li>Events accumulate: <code>Scale_TruckOn</code>, <code>Lpr_Read</code> (if LPR),
+<code>Measurement_Recorded</code> (from spot-decoder if configured),
+<code>Permit_Validated</code> (if QR scan), <code>Ticket_Received</code> (tare ticket with
+<code>bTicket==&#39;0&#39;</code>), <code>Scale_TruckLeaving</code>.</li>
+<li><code>_handleFinishedState</code> fires:<ul>
+<li><code>_classifyPairedPhase</code> returns <code>&#39;tare&#39;</code>.</li>
+<li><code>_cachePairedTareTruck</code> pickles the full TruckTransaction into
+<code>ApexInboundLog.sPairedState</code> with <code>sProvider=&#39;paired&#39;</code>.  The
+events are stored as-is — phase (&#39;tare&#39; vs &#39;loadout&#39;) is implicit
+at the cloud side from each event&#39;s own ticket data (the tare&#39;s
+<code>Ticket_Received</code> has <code>number==sTareValue</code>).  No explicit phase
+tag rides along; the earlier <code>Event.shipmentID</code> overload was
+removed in commit <code>9d3d18b43</code> because it was dead on the wire and
+conflicted with PSCL&#39;s legitimate use of the same field.</li>
+<li>Returns <code>STATE_WAITING</code>.  cloudAdd is NOT called.</li>
+</ul>
+</li>
+</ol>
+<p><strong>Flow (loadout cycle, sometime later — minutes to 8 hours):</strong></p>
+<ol start="5">
+<li>Truck pulls onto loadout scale, <code>Scale_TruckEntering</code> fires.</li>
+<li>New TruckTransaction accumulates: scale events,
+<code>Ticket_Received</code> (loadout ticket with <code>bTicket != &#39;0&#39;</code>),
+<code>Scale_TruckLeaving</code>.</li>
+<li><code>_handleFinishedState</code> fires:<ul>
+<li><code>_classifyPairedPhase</code> returns <code>&#39;loadout&#39;</code>.</li>
+<li><code>_getHeldPairedTare(truck.ticket)</code> searches <code>ApexInboundLog</code> for
+a row matching <code>truck.ticket.oXML</code> on the configured <code>rgsMatch</code>
+fields.  Returns <code>(oCachedTare, bTareID, bTareTimestamp)</code> on hit
+OR <code>None</code>.</li>
+<li><strong>On hit:</strong><ul>
+<li><code>truck.merge(oCachedTare)</code> appends the cached tare&#39;s
+<code>cloudEvents</code>/<code>imgs</code> into the loadout truck.  No event mutation —
+see the tare-side note above re: the removed phase-tag dead code.</li>
+<li><code>pairedFinalizeKey = (bTareID, bTareTimestamp)</code> for later.</li>
+</ul>
+</li>
+<li><strong>On miss:</strong><ul>
+<li><code>Alert_LoadoutWithoutTare</code> event appended to the loadout&#39;s
+<code>cloudEvents</code>.  No merge.</li>
+</ul>
+</li>
+<li><code>cloudAdd(bID, cloudEvents, imgs)</code> dispatches to
+<code>ThreadCloudSW.addEvent</code> — writes the JSON file to <code>clouddir</code>
+with a fresh <code>sCorrelationId</code>.  <strong>This is the durability point.</strong></li>
+<li><strong>Only AFTER cloudAdd returns:</strong> if we had a hit,
+<code>finalizePaired(bTareID, bTareTimestamp)</code> deletes the cache row.</li>
+<li><code>_saveStandardTicket</code> writes the local PDF (merged imgs).</li>
+</ul>
+</li>
+<li><code>ThreadCloudSW.run()</code> uploads the JSON file, gets back the cloud
+transaction id, deletes the file.</li>
+</ol>
+<p><strong>Result:</strong> ONE local PDF, ONE cloud SW_Transaction containing BOTH
+scale cycles&#39; events in chronological order.</p>
+<p><strong>Flow (orphan tare — never paired):</strong></p>
+<p>If a tare cycle never gets a matching loadout within <code>bPairTimeout</code>
+minutes (default 480 = 8 hours), the periodic sweep
+<code>_processExpiredPaired</code> runs:</p>
+<ol>
+<li><code>getExpiredPaired(bNow)</code> returns rows older than <code>bPairTimeout</code>
+without deleting them.</li>
+<li>For each row: append <code>Alert_TareWithoutLoadout</code> to the truck&#39;s
+<code>cloudEvents</code>, then <code>cloudAdd</code> (writes JSON to clouddir).</li>
+<li>Only AFTER cloudAdd: <code>finalizePaired(bID, bTimestamp)</code> deletes the
+row.</li>
+</ol>
+<p><strong>Result:</strong> the tare-side data uploads as its own SW_Transaction with
+the alert appended.  Cloud sees a one-cycle transaction with an alert
+icon.  Operators can investigate.</p>
+<p><strong>Flow (loadout without matching tare):</strong></p>
+<p>If a loadout arrives but no cached tare matches (<code>getHeldPairedTare</code>
+returns <code>None</code>):</p>
+<ol>
+<li><code>Alert_LoadoutWithoutTare</code> event appended.</li>
+<li>Normal <code>cloudAdd</code> for the loadout side only.</li>
+<li>No <code>finalizePaired</code> call (no row was matched).</li>
+</ol>
+<p><strong>Result:</strong> the loadout uploads as a one-cycle transaction with the
+alert appended.  Per Jahna policy this represents a real anomaly to
+investigate — operator should always tare.</p>
+<hr>
+<h2>Recorder durability story</h2>
+<p>The paired-mode bridge step (cache row carrying state between the two
+scale cycles, possibly hours apart) introduces a new failure mode that
+the legacy flow doesn&#39;t have.  Three durability-relevant points:</p>
+<ol>
+<li><strong>Cache write is in MariaDB.</strong>  The pickled TruckTransaction lives in
+the <code>ApexInboundLog</code> table.  Survives recorder restart, OS reboot,
+power loss.</li>
+<li><strong>Cloud upload is in <code>clouddir</code> filesystem first, queue second.</strong>
+<code>ThreadCloudSW.addEvent</code> writes the JSON file to disk BEFORE returning.
+Then the run loop reads from disk and POSTs.  If the recorder
+crashes after writing the file but before posting, the next boot&#39;s
+<code>_loadEventsFromDisk</code> re-queues the file.  Uploads are durable to
+crashes.</li>
+<li><strong>The bridge step&#39;s finalize-after-cloudAdd ordering</strong> (the fix in
+commit <code>172abb29f</code>): the cache row is held across the
+merge → cloudAdd window so a crash there leaves the cache row in
+place; the next loadout retry re-uploads, and cloud-side
+<code>sCorrelationId</code> dedup catches the duplicate.</li>
+</ol>
+<p>The combination provides recovery from a recorder crash at any point in
+the paired flow with at most one in-flight TruckTransaction&#39;s worth of
+loss — the same loss exposure as the legacy APEX flow.</p>
+<hr>
+<h2>CloudAPI ingest flow</h2>
+<h3>Legacy path (every customer not on paired-mode + every legacy NVR)</h3>
+<p>The NVR POSTs the JSON payload to <code>&lt;cloud-api&gt;/sw</code>.  The payload looks
+like (abbreviated):</p>
+<pre><code class="language-json">{
+  &quot;serial&quot;: 4001,
+  &quot;scale&quot;: 1,
+  &quot;timestamp&quot;: &quot;2026-05-22T13:45:00Z&quot;,
+  &quot;tzoffset&quot;: -5,
+  &quot;sCorrelationId&quot;: &quot;abc123...&quot;,
+  &quot;events&quot;: [
+    {&quot;timestamp&quot;: ..., &quot;name&quot;: &quot;ScaleTruckEntering&quot;, &quot;data&quot;: {...}, &quot;imgs&quot;: [...]},
+    {&quot;timestamp&quot;: ..., &quot;name&quot;: &quot;Lpr_Read&quot;,           &quot;data&quot;: {...}, &quot;imgs&quot;: [...]},
+    {&quot;timestamp&quot;: ..., &quot;name&quot;: &quot;ScaleTruckOn&quot;,       &quot;data&quot;: {...}, &quot;imgs&quot;: [...]},
+    {&quot;timestamp&quot;: ..., &quot;name&quot;: &quot;TicketReceived&quot;,     &quot;data&quot;: {...}, &quot;imgs&quot;: [...]},
+    {&quot;timestamp&quot;: ..., &quot;name&quot;: &quot;ScaleTruckLeaving&quot;,  &quot;data&quot;: {...}, &quot;imgs&quot;: [...]}
+  ],
+  &quot;cams&quot;: [1, 2]
+}
+</code></pre>
+<p><code>cloudapi/app/controllers/scalewatcher/transaction.js</code>&#39;s <code>create()</code>:</p>
+<ol>
+<li>Validates the payload (events present, serial valid, etc.).</li>
+<li>Reads <code>req.body.sCorrelationId</code> (may be absent on uploads from
+older recorder firmware — that&#39;s fine, <code>null</code> allowed under the
+UNIQUE index).</li>
+<li><strong>If correlation id is non-null and present in
+<code>SW_Transaction.sCorrelationId</code>:</strong> returns the existing transaction
+id with <code>deduped: true</code>.  No new row created.</li>
+<li>Otherwise: inserts a new <code>SW_Transaction</code> row carrying the
+correlation id.  If the INSERT races and hits <code>ER_DUP_ENTRY</code>, the
+pre-check is re-run and the existing id is returned.</li>
+<li>Iterates <code>events[]</code>, INSERTing each as a <code>SW_Event</code> row pinned to
+its real timestamp.</li>
+<li>Computes alert events (NoTicket, GrossWeightMismatch, etc.) based on
+scale data + ticket presence.</li>
+<li>Saves images to disk via <code>FILE_STORE</code>.</li>
+</ol>
+<h3>Paired path (Jahna + future paired-mode customers)</h3>
+<p><strong>Today, after commits <code>7aa042f67</code> + <code>172abb29f</code> + <code>77c8faf</code>:</strong> the
+paired upload payload looks IDENTICAL to a legacy payload, just with
+more events in the <code>events[]</code> array (both scale cycles&#39; events
+chronologically interleaved).  The cloudapi side has no concept of
+&quot;this is paired&quot; — it just renders whatever events arrived.</p>
+<p>Specifically:</p>
+<ul>
+<li>The merged transaction contains TWO <code>ScaleTruckEntering</code>, TWO
+<code>ScaleTruckOn</code>, TWO <code>ScaleTruckLeaving</code> events.</li>
+<li>The TicketReceived events may be one or two (tare ticket with
+<code>bTicket==&#39;0&#39;</code> and the loadout ticket with a real number).</li>
+<li>The <code>Alert_LoadoutWithoutTare</code> (orphan loadout) or
+<code>Alert_TareWithoutLoadout</code> (orphan tare) shows up as an
+<code>AlertLoadoutWithoutTare</code>/<code>AlertTareWithoutLoadout</code> SW_Event row.</li>
+<li>The portal renders all events along a horizontal timeline by
+<code>dTimestamp</code> — the tare-cycle icons cluster on the left, the
+loadout-cycle icons on the right, with a gap in between.</li>
+</ul>
+<p><strong>Known portal-side weirdness with this minimal-shape payload:</strong></p>
+<ul>
+<li>The portal&#39;s <code>Load</code> column (<code>ScaleTruckLeaving - ScaleTruckEntering</code>)
+computes against the merged event list and may compute a misleading
+number — last leaving minus first entering = whole tare-to-loadout
+span = hours, not minutes.  Per discussion 2026-05-23 we are
+intentionally NOT addressing this in the current pass; a future
+cloudapi change will switch to a phase-aware computation.</li>
+<li>The transaction&#39;s gallery view numbered breadcrumb will show 8-12
+steps instead of the usual 5-7.</li>
+</ul>
+<p><strong>Future shape (not yet implemented):</strong> the upload payload will carry
+a <code>paired.tare</code> sub-document with the tare cycle&#39;s data so cloudapi
+can expand it into phase-tagged SW_Events.  Portal can then render
+tare-phase icons visually distinct from loadout-phase icons, and the
+Load column computation can become phase-aware.  Separate work item.</p>
+<h3>Idempotency / dedup mechanics</h3>
+<p>The <code>sCorrelationId</code> column on <code>SW_Transaction</code>:</p>
+<ul>
+<li><code>VARCHAR(64) NULL</code></li>
+<li>UNIQUE index <code>idx_transaction_correlation_id</code></li>
+<li>MariaDB allows multiple NULLs under a UNIQUE index, so legacy
+uploads (no correlation id sent) coexist freely.</li>
+</ul>
+<p><code>create()</code> flow when the recorder retries (e.g., after a recorder
+crash between <code>cloudAdd</code> writing the JSON file and <code>finalizePaired</code>
+deleting the cache row, or any network timeout that causes the recorder
+to re-queue the same file):</p>
+<ol>
+<li>Recorder reads the same JSON from <code>clouddir</code> with the same
+<code>sCorrelationId</code>.</li>
+<li>POST hits cloudapi.</li>
+<li>cloudapi pre-checks: <code>SELECT id FROM SW_Transaction WHERE sCorrelationId=?</code> — finds the existing row.</li>
+<li>Returns <code>200 {id, deduped: true}</code> immediately without any further
+work.</li>
+<li>Recorder sees a 200, deletes the JSON file from <code>clouddir</code>.</li>
+</ol>
+<p><strong>Race condition:</strong> if two retries hit cloudapi simultaneously, the
+pre-check <code>SELECT</code> might miss the in-flight INSERT.  The UNIQUE index
+backstops this — the second INSERT raises <code>ER_DUP_ENTRY</code>.  cloudapi
+catches that error, re-runs the SELECT, and returns the existing id
+the same way.  Belt-and-suspenders.</p>
+<hr>
+<h2>Permit PDF delivery (now wired)</h2>
+<p>Permits flow into the cloud through the standard event+image pipeline,
+not via a separate path.</p>
+<p><strong>Recorder side</strong> (<code>thread_truck_transaction.py:795-848</code>):</p>
+<ol>
+<li>When a QR-scan event arrives during a transaction with a permit
+URL, <code>permit_client.lookup_permit(qr_text)</code> fetches the FDOT permit
+page, downloads the authoritative PDF, parses it for metadata
+(permit number, status, expiration, GVW, axle count, vehicle config),
+and validates.</li>
+<li>A <code>Permit_Validated</code> event is appended to <code>truck.cloudEvents</code> with
+the parsed metadata as structured fields in <code>_data</code>.</li>
+<li>The PDF bytes are base64-encoded and appended to <code>truck.imgs</code> as a
+pseudo-image entry: <code>cam=98</code> (reserved for permit documents),
+<code>ext=&#39;.pdf&#39;</code>, <code>data=&lt;base64 PDF&gt;</code>, <code>name=&#39;Permit&#39;</code>,
+<code>event=Permit_Validated</code>.</li>
+<li>If invalid, <code>Alert_InvalidPermit</code> is appended; if validation throws,
+<code>Alert_NoPermit</code> is appended.</li>
+<li>Parsed permit summary is also injected into <code>truck.ticket._data</code> so
+it shows up on the local PDF as ticket-overlay text (permit number,
+GVW, status).</li>
+</ol>
+<p><strong>The wire format fix</strong> (commit on <code>tasks/86b9y6jc5</code> after the
+durability work): <code>_slurpImage</code> previously hardcoded <code>.jpg</code> as the
+filename extension regardless of what the source code set on the img
+dict.  Permit PDFs were arriving on the cloud filesystem as
+<code>PermitValidated_&lt;ts&gt;_98.jpg</code> — PDF bytes inside a <code>.jpg</code> filename.
+Browsers and PDF viewers reject those as broken JPEGs.</p>
+<p>The fix respects the <code>ext</code> field if present, defaults to <code>.jpg</code> for
+camera-captured scale images that never set <code>ext</code>:</p>
+<pre><code class="language-python">sExt = i.get(&#39;ext&#39;, &#39;.jpg&#39;)
+return {
+    &#39;filename&#39;: &quot;{0}_{1}_{2}{3}&quot;.format(e, e.getTimestamp(), i[&#39;cam&#39;], sExt),
+    &#39;data&#39;: i[&#39;data&#39;]
+}
+</code></pre>
+<p>After this fix, permit PDFs land at
+<code>&lt;FILE_STORE&gt;/scalewatcher/&lt;serial&gt;/&lt;YYYY&gt;/&lt;MM&gt;/&lt;DD&gt;/PermitValidated_&lt;ts&gt;_98.pdf</code>
+and are addressable as a standard SW_Event image attachment.</p>
+<p>The mechanism is general — any future non-image artifact (signed ticket
+XML, FastWeigh webhook archive, etc.) can attach the same way by
+setting <code>ext</code> on its img dict.  No further plumbing needed.</p>
+<p><strong>CloudAPI side</strong>: zero changes.  <code>transaction.js:742-765</code> already
+iterates <code>current.imgs</code>, writes each <code>img.data</code> (base64) to
+<code>&lt;dirPath&gt;/&lt;img.filename&gt;</code> with no extension-specific logic.  Whatever
+filename arrives is what gets saved.</p>
+<p><strong>Portal side (not yet shipped — separate work item):</strong></p>
+<p>The portal&#39;s gallery (<code>scalewatcher/src/components/transaction_gallery/ SingleTransaction.js</code>) currently renders all event images via <code>&lt;img&gt;</code>
+tags.  For <code>.pdf</code> attachments the browser would show a broken image.</p>
+<p>Required change (single branch in the image renderer):</p>
+<pre><code class="language-jsx">{filename.endsWith(&#39;.pdf&#39;) ? (
+  &lt;embed src={imageUrl} type=&quot;application/pdf&quot; style={pdfStyle} /&gt;
+) : (
+  &lt;img src={imageUrl} ... /&gt;
+)}
+</code></pre>
+<p>Browser-native PDF rendering, no JS library dependency.  The &quot;PDF&quot; icon
+on the event-key legend can also be added so operators see at a glance
+which events have permit attachments.</p>
+<p><strong>Transaction PDF compilation (deferred):</strong></p>
+<p>The portal generates per-transaction PDF compilations via
+<code>@react-pdf/renderer</code> (see <code>cloudapi/scalewatcher/src/utilities/ parseEventData.js</code>).  That library doesn&#39;t natively embed external
+PDFs — it works with images.  Recommended approach for the permit:
+include a &quot;Permit Summary&quot; text section (number, GVW, status,
+expiration — all from the Permit_Validated event&#39;s <code>_data</code>) plus a
+&quot;View Original Permit&quot; link, instead of trying to embed the PDF page
+itself.  Keeps the transaction PDF compact and preserves the original
+permit PDF as the canonical archive.  If embedding becomes a
+requirement, the compilation engine would need to swap to <code>pdf-lib</code>
+which supports PDF merging.</p>
+<hr>
+<h2>Known gaps and follow-ups</h2>
+<ol>
+<li><p><strong><del><code>shipmentID</code> phase tag is dropped on the wire.</del></strong> RESOLVED
+2026-05-23 (commit <code>9d3d18b43</code>).  The setShipmentID calls were dead
+code — <code>_prepareEvents</code> never serialized the field, and the reuse
+conflicted with PSCL&#39;s legitimate use of <code>Event.shipmentID</code> for
+shipment grouping.  Removed.  If/when the cloud portal needs to
+distinguish tare-phase from loadout-phase events explicitly, that
+work lands as part of the option-C <code>paired.tare</code> sub-document
+(item 3 below), not via the field-overload approach.</p>
+</li>
+<li><p><strong>Load and Wait time computations</strong> at the cloud portal will
+produce wrong numbers for paired transactions.  Park for now per
+2026-05-23 discussion; revisit when the option-C upload shape
+lands so phase-tagged events are available for the computation.</p>
+</li>
+<li><p><strong>The <code>paired.tare</code> sub-document upload shape</strong> (option C from
+the design discussion) is NOT yet implemented.  This document
+describes the as-shipped behavior, which is option A — both scale
+cycles&#39; events merged into one events list.</p>
+</li>
+<li><p><strong>Portal-side PDF rendering</strong> is the only remaining piece of the
+permit-to-cloud pipeline — recorder + cloudapi storage are wired
+(see Permit PDF Delivery section above).  Needs a single-branch
+change in <code>SingleTransaction.js</code> and an optional &quot;PDF&quot; icon in the
+event legend.</p>
+</li>
+<li><p><strong>Test harness wiring for <code>test_sw_cloud_measurement.py</code></strong>:
+the file isn&#39;t included in <code>recorder/tests/run_all.py</code> (no <code>suite()</code>
+function exported, not in the import list).  Tests pass standalone
+(<code>python3 test_sw_cloud_measurement.py</code>).  Probably needs a follow-
+up to wire it into the harness so it runs in CI, but the existing
+<code>docker/test-build.sh</code> may already pick it up via discovery —
+needs verification.</p>
+</li>
+</ol>
+
+
+  </main>
+</div>
+</body>
+</html>

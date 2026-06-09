@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Measurement integration plan — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html" class="active">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Measurement integration plan</div></header>
+    <h1>Measurement Integration Plan</h1>
+<blockquote>
+<p><strong>CORRECTED 2026-05-22, extended 2026-06-02:</strong> This doc was authored 2026-05-18 with an assumption that measurement happens on the OUTBOUND/loaded ticket. Customer call 2026-05-21 (see memory <code>project_jahna_email_response_20260521.md</code> §1) confirmed the opposite — measurement is <strong>INBOUND/tare ONLY</strong> so the loader tablet can show predetermined max weight BEFORE loading. Strikethrough on individual lines below preserves diff history; the corrected direction governs.</p>
+<p><strong>ALSO CORRECTED 2026-06-02:</strong> Any references below to FastWeigh <code>transactionGuid</code> as the correlation/anchor source are <strong>superseded</strong>. Tare↔loadout correlation keys on a configurable PosType19 tare-ticket field (default <code>truck_id</code>), provider-agnostic across Apex XML and FastWeigh JSON. Existing mechanism = <code>fPairTareLoadout</code> + <code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code>. See <code>paired-mode-flow.md</code>. <strong>&quot;How we deliver our measurement data to FastWeigh&quot; is a separate parked concern, not in current test scope.</strong></p>
+</blockquote>
+<h2>Architecture Overview</h2>
+<p>Four systems, one flow. Measurement + permit checks happen on the <strong>INBOUND/tare ticket</strong> (loader tablet uses the resulting max weight BEFORE loading; no re-measurement on outbound).</p>
+<pre><code>FastWeigh (SaaS) ──webhook──&gt; CloudAPI (cloud) ──websocket──&gt; NVR (on-site) ──LAN──&gt; Spot Decoder (on-site)
+                                  ^                              |
+                                  └──────── upload txn ──────────┘
+</code></pre>
+<h3>System Roles</h3>
+<table>
+<thead>
+<tr>
+<th>System</th>
+<th>Location</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FastWeigh</td>
+<td>Cloud SaaS</td>
+<td>Ticketing. Creates tare/loaded tickets. Sends webhooks via Svix.</td>
+</tr>
+<tr>
+<td>CloudAPI</td>
+<td>Cloud server</td>
+<td>Backend. Receives webhooks, receives NVR uploads, stores everything, serves portal.</td>
+</tr>
+<tr>
+<td>NVR (dview)</td>
+<td>On-site appliance</td>
+<td>Records video, manages cameras, runs POS event logic. Persistent WS to CloudAPI.</td>
+</tr>
+<tr>
+<td>Spot Decoder</td>
+<td>On-site Linux box</td>
+<td>HDMI overlay on live RTSP. Operator measures axles with keyboard/controller. Saves JSON.</td>
+</tr>
+</tbody></table>
+<h3><del>Loaded</del> Inbound/Tare Ticket Flow (Step by Step)</h3>
+<blockquote>
+<p>Heading kept with strikethrough for diff clarity; flow is INBOUND.</p>
+</blockquote>
+<ol>
+<li><strong>FastWeigh fires <code>ticket.created</code> webhook</strong> to <code>POST /sw/webhooks/fastweigh</code></li>
+<li><strong>CloudAPI verifies Svix signature</strong>, deduplicates, passes raw ticket JSON through, pushes <code>ticket_event</code> over WebSocket to NVR</li>
+<li><strong>NVR receives <code>ticket_event</code></strong>, starts transaction (records video, captures images)</li>
+<li><strong>Operator measures truck on spot-decoder</strong> — places lines on axles, sets count, hits save. Writes <code>/tmp/measurement-latest.json</code></li>
+<li><strong>NVR fetches measurement from spot-decoder</strong> — via HTTP <code>GET /?stream=0&amp;measurement=status</code> on port 88</li>
+<li><strong>NVR uploads complete transaction to CloudAPI</strong> — images, video, events, measurement data bundled together</li>
+<li><strong>CloudAPI stores measurement</strong>, runs permit validation (weight-dependent checks), creates alerts on failures</li>
+<li><strong>Portal displays everything</strong> — ticket, images, video, measurement overlay, permit status</li>
+</ol>
+<h3>Permit Validation Split</h3>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Where</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Axle spacing / bridge formula geometry</td>
+<td>Spot Decoder (at save time)</td>
+<td>Operator gets instant feedback on HDMI</td>
+</tr>
+<tr>
+<td>Weight-dependent checks (gross vs permit limit)</td>
+<td>CloudAPI (at transaction landing)</td>
+<td>Gross weight comes from FastWeigh ticket, not available on spot-decoder</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Progress Checklist</h2>
+<h3>Phase 1: FastWeigh Webhook Receiver (CloudAPI)</h3>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Svix signature verification</li>
+<li><input checked="" disabled="" type="checkbox"> Idempotency / dedup by svix-id</li>
+<li><input checked="" disabled="" type="checkbox"> Pass raw ticket JSON through — no APEX normalization (<code>prepareTicket()</code> strips routing fields, adds provider tag)</li>
+<li><input checked="" disabled="" type="checkbox"> Push <code>ticket_event</code> to NVR over WebSocket (<code>pushTicketToNvr()</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Fallback transaction when NVR offline (<code>createFallbackTransaction()</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>SW_WebhookLog</code> table + migration</li>
+<li><input checked="" disabled="" type="checkbox"> 14 unit tests passing (3 pre-existing mock setup failures in receiveWebhook)</li>
+<li><input disabled="" type="checkbox"> Get FastWeigh webhook credentials from customer</li>
+</ul>
+<h3>Phase 2: Spot Decoder Measurement (On-Site)</h3>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Measurement overlay on HDMI (two blue vertical lines)</li>
+<li><input checked="" disabled="" type="checkbox"> Keyboard input — line movement (a/d, j/l), coarse/fine toggle (g)</li>
+<li><input checked="" disabled="" type="checkbox"> Calibration via HTTP API and keypad state machine</li>
+<li><input checked="" disabled="" type="checkbox"> Bridge formula calculation (111 tests passing)</li>
+<li><input checked="" disabled="" type="checkbox"> Save action — writes <code>/tmp/measurement-latest.json</code></li>
+<li><input checked="" disabled="" type="checkbox"> Screenshot capture with overlay via <code>GET /?screen_shot</code></li>
+<li><input checked="" disabled="" type="checkbox"> Measurement status API — <code>GET /?stream=0&amp;measurement=status</code></li>
+<li><input checked="" disabled="" type="checkbox"> Config persistence to INI file</li>
+<li><input checked="" disabled="" type="checkbox"> Direct axle count via digit keys (2-9)</li>
+<li><input disabled="" type="checkbox"> Save confirmation flash on HDMI screen</li>
+<li><input disabled="" type="checkbox"> Controller firmware — membrane keypad integration (hardware task, Mustang)</li>
+</ul>
+<h3>Phase 3: NVR &lt;-&gt; Spot Decoder Handshake</h3>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Decide trigger mechanism: NVR polls spot-decoder on ticket arrival (HTTP pull on transaction finish)</li>
+<li><input checked="" disabled="" type="checkbox"> NVR fetches measurement JSON from spot-decoder HTTP API (<code>measurement_client.py</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> NVR associates measurement with current transaction (implicit: fetched at transaction finish time)</li>
+<li><input checked="" disabled="" type="checkbox"> NVR bundles measurement data into transaction upload payload (<code>thread_cloud_sw.py</code> <code>_prepareEvents</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Handle edge cases: no measurement available, stale measurement, spot-decoder offline (26 unit tests)</li>
+<li><input checked="" disabled="" type="checkbox"> Configure <code>measurement-source</code> in NVR globals on VM4001 for testing</li>
+<li><input checked="" disabled="" type="checkbox"> End-to-end test: ticket_event → measurement fetch → CloudAPI upload with measurement data</li>
+<li><input checked="" disabled="" type="checkbox"> CloudTicket adapter — wraps cloud-provider ticket dicts for the APEX Ticket pipeline (<code>thread_ticket_reader.py</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> NVR cloud upload handles dict tickets without <code>.toJson()</code> (<code>thread_cloud_sw.py</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Measurement screenshot saved locally (temp file) + uploaded to CloudAPI (cam 99)</li>
+</ul>
+<h3>Phase 4: CloudAPI Measurement Storage</h3>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Decision: No dedicated SW_Measurement table — measurement rides as MeasurementRecorded event in SW_Event</li>
+<li><input checked="" disabled="" type="checkbox"> MeasurementRecorded event flows through existing handler, stored in SW_Event.sData as JSON</li>
+<li><input checked="" disabled="" type="checkbox"> Measurement screenshot stored as regular event image (base64 → file on disk)</li>
+<li><input checked="" disabled="" type="checkbox"> Migration: bAxleCount, fBridgePass, bPermit columns added to SW_Transaction</li>
+<li><input checked="" disabled="" type="checkbox"> Transaction create handler extracts axle count + bridge pass from MeasurementRecorded event</li>
+<li><input checked="" disabled="" type="checkbox"> AlertNoMeasurement and AlertStaleMeasurement added to alertTypes map (indices 10, 11)</li>
+<li><input checked="" disabled="" type="checkbox"> init.sql updated with new columns and indices</li>
+<li><input checked="" disabled="" type="checkbox"> 17 CloudAPI tests + 18 NVR integration tests, all passing</li>
+<li><input disabled="" type="checkbox"> API endpoint to retrieve measurement by transaction ID (deferred — portal reads SW_Event.sData)</li>
+</ul>
+<h3>Phase 5: Permit Validation — REVISED 2026-05-22</h3>
+<p>The original Phase 5 plan (OCR + dedicated permit table + cloudside bridge-formula port) is obsolete. Actual implementation:</p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> <strong>Permit validation happens on the NVR</strong>, not CloudAPI (<code>recorder/src/scalewatcher/permit_client.py</code>). NVR pulls the FDOT public URL via the QR code, downloads the PDF, parses it, attaches <code>Permit_Validated</code> event + the PDF as an image to the transaction.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>No SW_Permit table</strong> — permits ride as <code>Permit_Validated</code> events in <code>SW_Event</code>, PDF stored as transaction image. See ADR-006.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>No bridge-formula JS port at CloudAPI</strong> — bridge-formula geometry checks happen on the spot-decoder C side (where the measurement is being made). CloudAPI receives the pass/fail flag (<code>fBridgePass</code> column on <code>SW_Transaction</code>) without re-computing.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>No OCR pipeline (Textract or otherwise)</strong> — PDF is parsed via FlateDecode stream decompression + regex on extracted text strings. ADR-007 explains why we skipped OCR.</li>
+<li><input disabled="" type="checkbox"> <strong>Weight-cap validation by permit type</strong> (divisible vs nondivisible) — STILL OPEN, depends on customer answer to <code>open-questions.md</code> §1.2 last item.</li>
+<li><input disabled="" type="checkbox"> <strong>Alert routing for permit violations</strong> — <code>Alert_InvalidPermit</code> and <code>Alert_NoPermit</code> events exist in NVR <code>event.py</code>; cloud-side handling + portal display still pending Phase 6.</li>
+</ul>
+<h3>Phase 6: Portal Display</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Measurement data visible on transaction detail view</li>
+<li><input disabled="" type="checkbox"> Axle diagram / measurement visualization</li>
+<li><input disabled="" type="checkbox"> Permit status badge (pass/fail/no-permit)</li>
+<li><input disabled="" type="checkbox"> Measurement screenshot in image carousel</li>
+<li><input disabled="" type="checkbox"> Alert integration for overweight/over-bridge violations</li>
+</ul>
+<h3>Phase 7: Transaction Linking — REVISED 2026-05-22</h3>
+<p>LPN-based matching is OFF (LPR is not used at Jahna). Truck-ID matching depends on what FastWeigh actually exposes — pending sales call.</p>
+<ul>
+<li><input disabled="" type="checkbox"> <strong>Tare/loaded correlation key</strong> — <del>by LPN</del> obsolete. Candidates pending FastWeigh sales call: FastWeigh truck_id, slip_number, customer-supplied transaction GUID, or operator-entered hauler+truck. To be analyzed in <code>transaction-lifecycle-deep-dive.md</code> (in progress 2026-05-22).</li>
+<li><input disabled="" type="checkbox"> <strong>Paired main transaction at NVR</strong> — SHIPPED in feature branch (2026-05-23, originally landed as &quot;bundled-mode&quot; 2026-05-22, renamed). NVR holds a single TruckTransaction across tare scale → loadout scale, emits ONE paired upload to cloud. Replaces the original &quot;two SW_Transactions linked by sLpn&quot; approach. See <code>paired-mode-followups.md</code> for the locked design + review findings.</li>
+<li><input disabled="" type="checkbox"> TicketPending webhook support (if FastWeigh provides it)</li>
+<li><input disabled="" type="checkbox"> GraphQL V2 integration for richer ticket data (if available, premium-tier FastWeigh add-on)</li>
+<li><input disabled="" type="checkbox"> Transaction display in portal (Phase 6 dependency)</li>
+</ul>
+<hr>
+<h2>Blocked / Waiting</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Waiting On</th>
+<th>Impact</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Real FastWeigh webhook payloads</td>
+<td>Customer credentials</td>
+<td>Verify ticket number + uniqueId field names in actual payload</td>
+</tr>
+<tr>
+<td>Transaction flow (when does measurement happen?)</td>
+<td>Jahna email response</td>
+<td>Affects NVR-to-spot-decoder trigger timing</td>
+</tr>
+<tr>
+<td>FastWeigh webhook signing secret</td>
+<td>Customer / FastWeigh</td>
+<td>Can&#39;t test real webhook flow</td>
+</tr>
+<tr>
+<td>Membrane keypad integration</td>
+<td>Hardware build (Mustang)</td>
+<td>Controller UX, not blocking software</td>
+</tr>
+<tr>
+<td>TicketPending availability</td>
+<td>FastWeigh response</td>
+<td>v2 auto-linking strategy</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>System</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>app/controllers/scalewatcher/fastweigh.js</code></td>
+<td>CloudAPI</td>
+<td>Webhook receiver, raw ticket pass-through, NVR push</td>
+</tr>
+<tr>
+<td><code>app/routes/scalewatcher.js:275</code></td>
+<td>CloudAPI</td>
+<td>Route: <code>POST /sw/webhooks/fastweigh</code></td>
+</tr>
+<tr>
+<td><code>app/migrations/20260518000000-create-sw-webhook-log.js</code></td>
+<td>CloudAPI</td>
+<td>SW_WebhookLog migration</td>
+</tr>
+<tr>
+<td><code>app/tests/__tests__/fastweighWebhook.test.js</code></td>
+<td>CloudAPI</td>
+<td>17 unit tests</td>
+</tr>
+<tr>
+<td><code>recorder/src/scalewatcher/thread_ticket_reader.py</code></td>
+<td>NVR (recorder)</td>
+<td>Ticket + CloudTicket classes — CloudTicket wraps provider dicts for APEX pipeline</td>
+</tr>
+<tr>
+<td><code>recorder/src/scalewatcher/measurement_client.py</code></td>
+<td>NVR (recorder)</td>
+<td>HTTP client for spot-decoder measurement API</td>
+</tr>
+<tr>
+<td><code>recorder/src/scalewatcher/thread_cloud_sw.py</code></td>
+<td>NVR (recorder)</td>
+<td>Transaction upload — bundles measurement into JSON</td>
+</tr>
+<tr>
+<td><code>recorder/src/scalewatcher/thread_truck_transaction.py</code></td>
+<td>NVR (recorder)</td>
+<td>Transaction lifecycle — fetches measurement at finish</td>
+</tr>
+<tr>
+<td><code>recorder/src/scalewatcher/thread_cloud_websocket.py</code></td>
+<td>NVR (recorder)</td>
+<td>WebSocket handler — receives ticket_event from CloudAPI</td>
+</tr>
+<tr>
+<td><code>recorder/tests/test_measurement_client.py</code></td>
+<td>NVR (tests)</td>
+<td>26 unit tests for measurement client</td>
+</tr>
+<tr>
+<td><code>recorder/tests/test_sw_cloud_measurement.py</code></td>
+<td>NVR (tests)</td>
+<td>12 integration tests for measurement in upload flow</td>
+</tr>
+<tr>
+<td><code>spot-decoder/src/measurement.c</code></td>
+<td>Spot Decoder (NVR repo)</td>
+<td>~600 lines: bridge formula, calibration, overlay, input</td>
+</tr>
+<tr>
+<td><code>spot-decoder/src/measurement.h</code></td>
+<td>Spot Decoder (NVR repo)</td>
+<td>Data structures, API declarations</td>
+</tr>
+<tr>
+<td><code>spot-decoder/tests/test_bridge_formula.c</code></td>
+<td>Spot Decoder (NVR repo)</td>
+<td>111 bridge formula tests</td>
+</tr>
+</tbody></table>
+<h2>Spot Decoder: Hotplug + Multi-Device Input (TODO)</h2>
+<p>The spot-decoder (<code>spot-decoder/src/input.c</code>) currently scans <code>/dev/input/event0..31</code> once at startup in <code>input_init()</code>, opening a single FD per device type (keyboard, IR, joystick). Two problems:</p>
+<h3>1. No hotplug support</h3>
+<p>Devices plugged in after boot are never discovered. Unplug handling works (failed <code>read()</code> closes the FD), but nothing re-scans. This affects:</p>
+<ul>
+<li><strong>USB keyboard/numpad</strong> — must be plugged in before spot-decoder starts</li>
+<li><strong>HDMI display</strong> — hotplug detection needed for display connect/disconnect</li>
+<li><strong>Arduino controller</strong> — same issue</li>
+</ul>
+<p><strong>Fix:</strong> Add <code>libudev</code> (<code>libudev.h</code>) for enumeration and hotplug monitoring. Use <code>udev_monitor_new_from_netlink(&quot;udev&quot;)</code> to get a monitor FD, add it to the existing <code>select()</code> call in <code>input_wait()</code>, and on <code>add</code>/<code>remove</code> actions re-enumerate matching input devices.</p>
+<h3>2. Single FD per device type (multi-keyboard collision)</h3>
+<p>The Arduino Leonardo measurement controller (VID:PID <code>2341:8036</code>, serial <code>HIDPC</code>) registers as a USB HID keyboard — same type as a standard USB numpad. Both must be connected simultaneously (Leonardo for dual-joystick axle control, numpad for numeric input). With single-slot-per-type, only whichever appears on the lower <code>/dev/input/event</code> number gets opened.</p>
+<p><strong>Fix:</strong> Change from single FDs (<code>fdkb</code>, <code>fdjs</code>) to arrays per device type. Match the Arduino controller by its unique product name instead of generic &quot;Keyboard&quot; keyword.</p>
+<h3>3. Arduino Leonardo firmware identity</h3>
+<p>The Leonardo&#39;s USB descriptor strings are firmware-configurable. Rename from &quot;Arduino LLC Arduino Leonardo&quot; to a professional product name for device matching and appearance.</p>
+<p><strong>PlatformIO build flags:</strong></p>
+<pre><code class="language-ini">build_flags =
+  -DUSB_MANUFACTURER=&#39;&quot;Dividia&quot;&#39;
+  -DUSB_PRODUCT=&#39;&quot;DT-ATC200&quot;&#39;
+</code></pre>
+<p>This changes what shows up in <code>lsusb</code>, <code>dmesg</code>, and the <code>EVIOCGNAME</code> ioctl that spot-decoder uses. Then <code>find_input_device(&quot;DT-ATC200&quot;, ...)</code> becomes a unique match — no collision with any other keyboard.</p>
+<p><strong>Arduino Leonardo USB interfaces:</strong></p>
+<ul>
+<li>Interface 0: CDC ACM Control (class 2) — serial port</li>
+<li>Interface 1: CDC Data (class 10) — serial data</li>
+<li>Interface 2: HID (class 3) — Usage Page 1, Usage 6 = Keyboard</li>
+</ul>
+<h3>Key files</h3>
+<ul>
+<li><code>spot-decoder/src/input.c</code> — scan, init, select loop</li>
+<li><code>spot-decoder/src/input.h</code> — structs/defines (<code>EVENT_FILES_SCAN_MAX=32</code>, <code>input_t</code> holds the FDs)</li>
+<li><code>spot-decoder/src/main.c:320</code> — where <code>input_t</code> lives as a stack var, passed to HTTP thread</li>
+<li><code>spot-decoder/src/conf.c</code> — measurement config section (extend for per-device config)</li>
+</ul>
+<hr>
+<h2>Measurement Device Selection in dview Setup (TODO — VERIFY NEXT SESSION)</h2>
+<blockquote>
+<p>Captured 2026-05-23 (David): before-I-forget item.  Don&#39;t lose it.</p>
+</blockquote>
+<p>When the operator turns on the <strong>measurement</strong> add-on for a Scale Watcher row
+in <code>ScaleWatcherDialog</code> (the new Feature Add-Ons section on
+<code>feat/scalewatcher-feature-stack</code>), they need to pick <strong>which device</strong> is doing
+the QR-reading + axle measurement for that row.  Two input modes:</p>
+<ol>
+<li><strong>Pick from the device list</strong> — a registered spot-decoder appliance.</li>
+<li><strong>Free-form IP address</strong> — for un-registered devices (dev boxes, sites
+where the spot-decoder isn&#39;t a managed NVR device, etc.).</li>
+</ol>
+<p><strong>Why it matters:</strong> A single site could have multiple lanes with separate
+spot-decoders.  Per-row feature toggles aren&#39;t enough if every row shares one
+recorder-global endpoint.</p>
+<p><strong>Status — UNVERIFIED.</strong>  Today the endpoint is the recorder global
+<code>measurement-source</code> (see <code>nvr/recorder/src/scalewatcher/measurement_client.py</code>
+and memory <code>reference_spot_decoder</code> — dev value <code>192.168.0.69</code>, port defaults
+to 88).  That&#39;s one value per recorder, not per row.  May already be exposed
+in the new ScaleWatcherDialog Feature Add-Ons section — need to check.</p>
+<p><strong>Next session — verify in this order:</strong></p>
+<ol>
+<li>Read <code>nvr/dview/src/.../ScaleWatcherDialog.java</code> Feature Add-Ons section
+for a measurement-device picker.  (Branch: <code>feat/scalewatcher-feature-stack</code>.)</li>
+<li>Read <code>nvr/recorder/src/scalewatcher/measurement_client.py</code> to see whether
+the host comes from a per-row config or only the recorder global.</li>
+<li>If recorder-global only: plan a per-row field on the TicketLog config row<ul>
+<li>dview UI selector (device-list dropdown OR IP string), and wire
+<code>MeasurementClient(host=...)</code> to read it per transaction.</li>
+</ul>
+</li>
+</ol>
+<p>Tag: <code>MEASUREMENT_DEVICE_PER_ROW</code></p>
+<hr>
+<h2>QR Code Reading from Camera — Where Does It Live? (TODO — DESIGN)</h2>
+<blockquote>
+<p>Captured 2026-05-23 (David): before-I-forget item.  Test camera expected
+at the office Tuesday 2026-05-26 (Uniview, model TBD pending what Jahna
+has — likely matches their <code>IPC3635SB-ADZK-I0</code> permit-window cam).</p>
+</blockquote>
+<p><strong>The question:</strong> When a permit QR code is captured by a fixed camera at the
+scale house (driver holds the permit up to the window — AxlEye-replacement
+path, NOT the §1.0a mobile-app path), <strong>where does the decode happen?</strong></p>
+<p>Two candidate hosts:</p>
+<ol>
+<li><strong>Spot Decoder (on-site C process).</strong>  Already has RTSP frame access for
+the measurement overlay and runs on the same appliance.  Pros: one box for
+the whole inbound flow; QR result can be saved alongside the measurement
+JSON.  Cons: pulls a QR/zbar dependency into the C code; spot-decoder is
+currently single-stream per appliance, would need to read a 2nd camera
+stream.</li>
+<li><strong>NVR (recorder / mpengine).</strong>  Already pulls all camera streams and has
+the Python POS event loop.  Pros: no new stream reader; can push the
+decoded GUID directly into the active transaction the same way the existing
+<code>permit_client.py</code> consumes a GUID today.  Cons: another decode pipeline in
+the recorder, may compete for CPU with motion / encode.</li>
+</ol>
+<p><strong>Today:</strong> <code>permit_client.py</code> takes a permit GUID and pulls the public FDOT
+PDF (<code>pas.fdot.gov/Public/ViewPermit/{guid}</code>).  It does NOT scan a QR — the
+GUID is currently sourced from either the FastWeigh ticket field (untested
+against real payload) or operator-entered (also untested).  AxlEye does QR
+scanning today; we don&#39;t, so this is a new capability to add.</p>
+<p><strong>Next session — concrete steps (Tuesday 2026-05-26 onward):</strong></p>
+<ol>
+<li>Confirm the test camera model when it lands at the office.  Spec what
+resolution + frame rate the QR camera streams; sanity-check that QR
+readability is achievable at the mount distance Jahna uses.</li>
+<li>Prototype both: spot-decoder C with libzbar OR Python recorder
+<code>qr_client.py</code> polling a frame via mpengine.  Decide on perf + complexity.</li>
+<li>Wire the decoded GUID into the existing <code>permit_client.fetch_permit(guid)</code>
+pipeline.  No changes needed downstream — cloud upload already handles
+<code>Permit_Validated</code> events.</li>
+</ol>
+<p><strong>Cross-link:</strong> This is the camera-based alternative to the mobile-app QR scan
+in <code>open-questions.md</code> §1.0a.  Both can coexist; either is sufficient.</p>
+<p>Tag: <code>QR_CAMERA_DECODE_LOCATION</code></p>
+<hr>
+<h2>Port Browser-Demo Measurement Features → Spot Decoder C (TODO — GAP ANALYSIS)</h2>
+<blockquote>
+<p>Captured 2026-05-23 (David): before-I-forget item.  ADR-003 moved the
+measurement UI from browser/Node to spot-decoder C, but <strong>not everything
+from the browser demo has landed yet</strong>.  Need to gap-analyze and port the
+remainder onto the dev spot-decoder at <code>192.168.0.69:88</code> (see memory
+<code>reference_spot_decoder</code>).</p>
+</blockquote>
+<p><strong>Source (reference):</strong> <code>~/Desktop/dev_projects/cv-axle-controller/</code> —
+&quot;KEPT as reference / test harness; not production for Jahna&quot;
+(cross-repo-status table). Browser/Node web app with bridge formula,
+calibration, SQLite.  HEAD <code>54d5e36</code> on <code>master</code>.</p>
+<p><strong>Target:</strong> <code>nvr/spot-decoder/src/measurement.c</code> (838 lines) +
+<code>spot-decoder/src/measurement.h</code> + <code>spot-decoder/src/conf.c</code>.</p>
+<p><strong>What&#39;s already ported (per Phase 2 checklist above):</strong></p>
+<ul>
+<li>Measurement overlay on HDMI (two blue vertical lines).</li>
+<li>Keyboard input (a/d, j/l line movement; g coarse/fine toggle).</li>
+<li>HTTP-API calibration + keypad state-machine.</li>
+<li>Bridge formula (111/111 tests).</li>
+<li>Save action → <code>/tmp/measurement-latest.json</code>.</li>
+<li>Screenshot capture (<code>GET /?screen_shot</code>).</li>
+<li>Status API (<code>GET /?stream=0&amp;measurement=status</code>).</li>
+<li>INI persistence.</li>
+<li>Direct axle-count via digit keys (2-9).</li>
+<li>Special-vehicle flag via HTTP API.</li>
+</ul>
+<p><strong>Gap status:</strong> Unknown — several browser-demo features have already been
+ported (the &quot;What&#39;s already ported&quot; list above is partial; David confirmed
+2026-05-23 &quot;some have already been done&quot;).  Don&#39;t pre-list speculated gaps
+here — do the actual side-by-side instead.</p>
+<p><strong>Next session — gap-analysis steps:</strong></p>
+<ol>
+<li><code>cd ~/Desktop/dev_projects/cv-axle-controller &amp;&amp; git log --oneline -30</code>
+to see what the demo grew last; then read the top-level README + any
+feature list.  Build a complete browser-demo feature inventory.</li>
+<li>Walk <code>nvr/spot-decoder/src/measurement.c</code> + <code>measurement.h</code> + <code>conf.c</code><ul>
+<li>the HTTP API in <code>http_thread.c</code> and mark each browser-demo feature
+as DONE / PARTIAL / MISSING.</li>
+</ul>
+</li>
+<li>For the MISSING + PARTIAL set, decide per item: port to C, keep on
+cv-axle-controller as a dev tool only, or drop entirely.  Document
+non-obvious decisions in <code>decisions.md</code> (ADR-008 candidate).</li>
+<li>Implement ports against the dev decoder at <code>192.168.0.69:88</code>; verify
+each via the HTTP API surface documented in <code>reference_spot_decoder</code>.</li>
+</ol>
+<p>Tag: <code>MEASUREMENT_BROWSER_DEMO_PORT</code></p>
+<hr>
+<h2>Assumptions</h2>
+<ul>
+<li><del>Measurement happens on the outbound/loaded ticket, not the tare</del> <strong>CORRECTED 2026-05-22 — VERIFIED INBOUND/tare ONLY</strong> per customer call 2026-05-21. Loader tablet needs max weight BEFORE loading. No re-measurement on outbound.</li>
+<li>One measurement per transaction (last save wins, accidental overwrites are OK). <strong>VERIFIED</strong> by NVR code: <code>measurement_client.fetch_measurement()</code> is called once in <code>_handleFinishedState()</code>.</li>
+<li><del>Permit validation is document-based (OCR comparison, not registry lookup)</del> <strong>CORRECTED 2026-05-22:</strong> Permit validation is <strong>PDF-text-extraction-based</strong> (FlateDecode stream decompression + regex on extracted text), NOT image OCR. The &quot;document&quot; is the official PDF from FDOT&#39;s public URL — no OCR pipeline needed. See ADR-007 and <code>nvr/recorder/src/scalewatcher/permit_client.py:299-480</code>.</li>
+<li><del>v1 = manual truck ID entry at measurement time; v2 = auto from TicketPending</del> <strong>OBSOLETE 2026-05-22:</strong> No &quot;manual truck ID at measurement time&quot; is part of the actual flow. Measurement is keyed to the <em>active transaction</em> via NVR state, not to a truck ID typed by the operator. Truck identification for the transaction is whatever FastWeigh provides (pending sales-call answer on which field — see <code>open-questions.md</code> §2.3).</li>
+<li>Bridge formula geometry checks happen on spot-decoder; weight-cap policy checks (divisible vs nondivisible permit limits) happen wherever the permit is parsed (currently NVR <code>permit_client.py</code>). CloudAPI is not in the validation path beyond storing the result.</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>

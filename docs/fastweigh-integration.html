@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FastWeigh integration — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html" class="active">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">FastWeigh integration</div></header>
+    <h1>FastWeigh Integration — Architecture &amp; Implementation Document</h1>
+<blockquote>
+<p><strong>SUPERSEDED IN PART (2026-05-22, extended 2026-06-02):</strong> This doc was authored 2026-05-18 <em>before</em> the customer call (2026-05-21), ADR-003 (measurement → spot-decoder C), ADR-006 (no SW_Permit table), ADR-007 (FDOT public URL, no credentials), and the decision that LPR is OFF the table. The §§ 1-2 webhook spec is still current. §§ 3-5 contain large obsolete sections (LPN-linked v1/v2 model, SW_OverweightPermit table, browser-based measurement plan) — those are marked SUPERSEDED below with pointers to the authoritative source in <code>architecture.md</code> and <code>decisions.md</code>. § 6 implementation status is partially stale — updated below. <strong>When this doc and <code>architecture.md</code> disagree, <code>architecture.md</code> and the ADRs in <code>decisions.md</code> win.</strong></p>
+<p><strong>ALSO SUPERSEDED 2026-06-02:</strong> Any references in §§ 1-2 or implementation status to <code>transactionGuid</code> / <code>ticketPending</code> GraphQL / Tier 1/2/3 framing as the correlation source. <strong>Current model: tare↔loadout pairs on a configurable PosType19 tare-ticket field (default <code>truck_id</code>), provider-agnostic across Apex XML and FastWeigh JSON.</strong> Existing mechanism = <code>fPairTareLoadout</code> + <code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code>. See <code>paired-mode-flow.md</code>. The &quot;how we hand FastWeigh the measurement data&quot; question (XML drop / write-back / etc.) is <strong>parked, not in current test scope</strong> — separate from correlation.</p>
+</blockquote>
+<p><strong>Branch:</strong> <code>tasks/86b9y6jc5</code> (all repos: cloudapi, nvr, scalewatcher)
+<strong>Date:</strong> 2026-05-18 (last major refresh: 2026-05-22 supersession pass)
+<strong>Status:</strong> v1 webhook + measurement + permit E2E working; awaiting real FastWeigh credentials + customer answers on remaining open questions (see <code>open-questions.md</code>)</p>
+<hr>
+<h2>1. Overview</h2>
+<p>FastWeigh is being added as a second cloud-based ticket data provider alongside the existing
+Command Alkon APEX local integration. This establishes the cloud ticket ingestion pattern
+that Command Alkon&#39;s upcoming &quot;CommandCloud&quot; platform will also use.</p>
+<p><strong>Provider architecture:</strong></p>
+<pre><code>Provider Layer (webhook receivers)
+  +-- FastWeigh  (Svix webhooks, JSON) &lt;-- v1 implemented + E2E tested
+  +-- CommandCloud (future, likely webhooks)
+  +-- APEX (existing, local HTML -- unchanged)
+        |
+        v
+  Pass-Through Layer (strip routing fields, add provider tag, forward raw JSON)
+        |
+        v
+  Common Pipeline (WebSocket push -&gt; NVR CloudTicket adapter -&gt; transaction processing)
+</code></pre>
+<p><strong>Design decision (2026-05-21):</strong> No normalization layer. Cloud tickets pass through as
+raw JSON — the NVR backend only needs <code>ticket</code> (number) and <code>uniqueid</code> for processing.
+All other fields are provider-specific key-value pairs stored and displayed as-is.
+The <code>CloudTicket</code> adapter on the NVR wraps the dict to provide the same interface as
+APEX <code>Ticket</code> objects (<code>.rgsOverlay</code>, <code>.bTicket</code>, <code>.bUniqueID</code>, etc.).</p>
+<hr>
+<h2>2. Core Webhook Flow (v1 — Implemented)</h2>
+<pre><code>FastWeigh (Svix)
+  |
+  | POST /sw/webhooks/fastweigh (HMAC-SHA256 signed)
+  v
+CloudAPI
+  | 1. Verify Svix signature (raw body + svix-id/timestamp/signature headers)
+  | 2. Idempotency check (deduplicate by svix-id in SW_WebhookLog)
+  | 3. Strip routing fields, add provider tag (raw JSON pass-through)
+  | 4. Lookup NVR WebSocket by serial from ticket payload
+  v
+WebSocket push (ticket_event message)
+  |
+  v
+NVR (on-premise)
+  | 1. ThreadCloudWebsocket receives ticket_event
+  | 2. Creates Ticket_Received event (ticket data is a raw dict)
+  | 3. Dispatches to ThreadTruckTransaction via addEvent()
+  | 4. _saveTicket detects dict, wraps in CloudTicket adapter
+  | 5. Transaction processes: captures images, fetches measurement from spot-decoder
+  | 6. Uploads completed transaction back to CloudAPI via POST /sw/
+  v
+CloudAPI stores transaction -&gt; visible in ScaleWatcher Cloud portal
+</code></pre>
+<p><strong>NVR offline fallback:</strong> If the NVR WebSocket is disconnected, CloudAPI creates a
+fallback <code>SW_Transaction</code> with <code>sTag=&#39;cloud-only&#39;</code> and logs to <code>SW_WebhookLog</code> with
+status=&#39;fallback&#39;. Still returns 200 to Svix to avoid retries.</p>
+<hr>
+<h2>3. Tare vs Loaded Ticket Flow — SUPERSEDED</h2>
+<blockquote>
+<p><strong>SUPERSEDED 2026-05-22.</strong> The original content of this section assumed LPR (license-plate reading) was the cross-scale correlation mechanism for linking tare → loaded transactions. <strong>LPR is OFF the table per customer decision</strong> — the customer says LPR is &quot;not stable&quot; at their sites, and the production approach uses other means (QR-permit-driven, FastWeigh-supplied correlators, or operator entry). The v1 &quot;independent transactions linked by sLpn&quot; and v2 &quot;CloudAPI auto-linking by LPN&quot; models in the original draft are both invalid.</p>
+<p><strong>Current authoritative source for transaction lifecycle:</strong> <code>architecture.md</code> §§ 0c and 2 (NVR fire-and-forget per-truck-batch upload), <code>decisions.md</code> ADR-005 (raw JSON pass-through), and the forthcoming <code>transaction-lifecycle-deep-dive.md</code> (in progress) which will detail single-scale vs dual-scale handling, the paired-main-transaction model, and the correlation-key options once FastWeigh credentials confirm what&#39;s in the payload.</p>
+<p><strong>The legitimately-open question remains:</strong> how FastWeigh&#39;s webhook payload differentiates tare vs loaded (a <code>type</code> field, ticket-number convention, separate event types, or custom UDF). That is captured in <code>open-questions.md</code> §1.1 and §2.1 — pending FastWeigh sales call.</p>
+</blockquote>
+<p>(Original §3 content omitted; was scale flow diagrams with <code>Lpr_Read</code> start events and &quot;both transactions share the same LPN&quot; — both contradicted by LPR-off decision.)</p>
+<hr>
+<h2>4. Overweight Permits — SUPERSEDED (Implemented Differently)</h2>
+<blockquote>
+<p><strong>SUPERSEDED 2026-05-22.</strong> Every assumption in the original §4 turned out wrong once customer answered (2026-05-21) and we built the real solution. Specifically:</p>
+<ul>
+<li><strong>NOT a &quot;new feature not yet implemented.&quot;</strong> Built end-to-end. NVR <code>recorder/src/scalewatcher/permit_client.py</code> (541 lines, 54 unit tests) validates permits against a real FDOT permit (<code>ecda589c-7aaa-4c7b-9771-122133e533fd</code>).</li>
+<li><strong>No upload-and-store-permit mechanism needed.</strong> Driver shows the permit&#39;s QR code; the QR decodes to a <em>public</em> FDOT URL (<code>pas.fdot.gov/Public/ViewPermit/{guid}</code>); we download the official PDF directly from FDOT and parse it. See ADR-007.</li>
+<li><strong>No <code>SW_OverweightPermit</code> table.</strong> Permits ride as <code>Permit_Validated</code> events in <code>SW_Event</code> (parsed fields in <code>sData</code> JSON), and the PDF is stored as a transaction image. Same shape as ADR-002 for measurement. See ADR-006. The <code>bPermit</code> FK column on <code>SW_Transaction</code> is a vestige with no FK target.</li>
+<li><strong>No &quot;associate permits with specific trucks by LPN.&quot;</strong> LPR is OFF; permits are per-permittee (carrier), not per-vehicle, per customer confirmation 2026-05-21. We don&#39;t need to associate at the entity level — we associate the <em>validation event</em> with the <em>transaction</em> it was validated on.</li>
+<li><strong>No CRUD-routes-for-permit-management.</strong> There&#39;s nothing to manage at the cloud level — every truck shows the permit on every trip, we validate live, no permit registry to keep current. The permit PDF is the audit trail, stored per-transaction.</li>
+<li><strong>No portal page for permit management.</strong> Phase 6 portal work is still pending but will display permit <em>validation</em> on the transaction-detail view (permit number, expiration, validity, PDF link), not maintain a permit database.</li>
+<li><strong>The &quot;questions to resolve&quot; listed in the original §4 are all answered</strong> — see <code>open-questions.md</code> §1.2 (all [x] items) and ADR-006/ADR-007.</li>
+</ul>
+<p><strong>Current authoritative source:</strong> <code>architecture.md</code> § 6 (permit subsystem), ADR-006 and ADR-007 in <code>decisions.md</code>, and the customer-context section <code>architecture.md</code> § 0b operational rule 3.</p>
+</blockquote>
+<p>(Original §4 content omitted; described an entity-modeled permit registry with <code>SW_OverweightPermit</code> table keyed by LPN — none of which we built or will build.)</p>
+<hr>
+<h2>5. Axle Measurement Tool — SUPERSEDED (Implemented in Spot-Decoder C)</h2>
+<blockquote>
+<p><strong>SUPERSEDED 2026-05-22.</strong> The original §5 proposed a browser-based measurement tool drawing on captured images in the portal — &quot;Option B&quot; in the original <code>open-questions.md</code> §4.1 decision matrix. <strong>Decision 2026-05-19 (ADR-003): measurement UI moved to spot-decoder C</strong> because browser focus issues are unreliable in a multi-window scale-house environment. The browser approach was rejected.</p>
+<p><strong>What&#39;s actually built:</strong></p>
+<ul>
+<li><code>nvr/spot-decoder/src/measurement.c</code> (838 lines) — Federal Bridge Formula B (23 USC 127 + FL 316.535), normalized 0.0-1.0 coordinate system, calibration state machine with INI persistence, HTTP API on port 88, USB HID key handler. 111/111 bridge formula tests passing.</li>
+<li><code>nvr/recorder/src/scalewatcher/measurement_client.py</code> (165 lines) — HTTP client that fetches measurement status + JPEG screenshot from spot-decoder at transaction-finish time. Wired into <code>thread_truck_transaction.py:710-762</code>.</li>
+<li>Storage: rides as <code>MeasurementRecorded</code> event in <code>SW_Event</code>, summary fields <code>bAxleCount</code> (int) and <code>fBridgePass</code> (tinyint) on <code>SW_Transaction</code>. See ADR-002.</li>
+<li>Portal display (measurement panel on transaction-detail view) is Phase 6 — not started, see <code>cross-repo-status.md</code>.</li>
+</ul>
+<p><strong>Current authoritative source:</strong> <code>architecture.md</code> § 5 (the measurement subsystem in full), ADR-002 (no SW_Measurement table), ADR-003 (spot-decoder C, not browser). Hardware track (controller, PCB, enclosure, Arduino firmware) lives in cv-axle-controller — see <code>architecture.md</code> § 8.</p>
+</blockquote>
+<p>(Original §5 content omitted; described a browser-based canvas tool drawing lines on event images — explicitly rejected by ADR-003.)</p>
+<hr>
+<h2>6. Implementation Status</h2>
+<h3>Completed (v1 core — 2026-05-18)</h3>
+<p><strong>CloudAPI:</strong></p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> <code>svix</code> npm dependency added to <code>app/package.json</code></li>
+<li><input checked="" disabled="" type="checkbox"> Raw body middleware for webhook signature verification (<code>app/app.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>POST /sw/webhooks/fastweigh</code> route (<code>app/routes/scalewatcher.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> FastWeigh controller with Svix verification, normalization, WS push, offline fallback (<code>app/controllers/scalewatcher/fastweigh.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>ticket_event</code> WebSocket routing (<code>app/server.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <code>SW_WebhookLog</code> table, model, migration (<code>app/models/webhooklog.js</code>, <code>app/migrations/</code>, <code>db/init.sql</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> 17 unit tests passing (<code>app/tests/__tests__/fastweighWebhook.test.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Mock webhook sender (<code>app/tests/mock-fastweigh-webhook.js</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Full test suite: 323/323 tests pass</li>
+</ul>
+<p><strong>NVR:</strong></p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> <code>ticket_event</code> handler in <code>ThreadCloudWebsocket</code> (<code>recorder/src/scalewatcher/thread_cloud_websocket.py</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> Cloud WebSocket wired to bType==19 Truck Transaction thread (<code>recorder/src/thread_main.py</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> dview POS type-change bug fix (<code>dview/src/net/dividia/dview/setup/pos/PosController.java</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>Measurement client</strong> (<code>recorder/src/scalewatcher/measurement_client.py</code>, 165 lines) — fetches measurement + screenshot from spot-decoder at transaction-finish; tested.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>Permit client</strong> (<code>recorder/src/scalewatcher/permit_client.py</code>, 541 lines, 54 tests) — extracts GUID from QR text, validates against FDOT public URL, downloads PDF, parses fields. Verified against real permit.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>Spot-decoder C measurement</strong> (<code>nvr/spot-decoder/src/measurement.c</code>, 838 lines, 111/111 bridge formula tests) — overlay, bridge formula, calibration, HTTP API on port 88.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>CloudTicket adapter</strong> (<code>recorder/src/scalewatcher/thread_ticket_reader.py</code> mods) — wraps FastWeigh dict tickets for the APEX-pattern Ticket pipeline.</li>
+<li><input checked="" disabled="" type="checkbox"> <strong>Transaction lifecycle integration</strong> (<code>recorder/src/scalewatcher/thread_truck_transaction.py</code> +210 lines) — measurement + permit fetch in <code>_handleFinishedState()</code>, event accumulation in <code>cloudEvents[]</code>, batch upload on <code>STATE_FINISHED</code>.</li>
+</ul>
+<p><strong>End-to-end verified:</strong></p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> Mock webhook -&gt; CloudAPI signature verification -&gt; WebSocket push -&gt; NVR receives ticket_event -&gt; Ticket_Received event dispatched -&gt; image capture attempted -&gt; SW_WebhookLog entries created</li>
+<li><input checked="" disabled="" type="checkbox"> NVR serial 4001 at 192.168.0.141 running PosType19 &quot;Scale Watcher&quot; on port 6501</li>
+</ul>
+<h3>Remaining (pre-production)</h3>
+<p><strong>Blocked on FastWeigh:</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> FastWeigh account credentials and webhook enablement</li>
+<li><input disabled="" type="checkbox"> Actual webhook payload schema for <code>ticket.created</code></li>
+<li><input disabled="" type="checkbox"> Confirmation that custom fields (NVR serial + port) can be in ticket templates</li>
+<li><input disabled="" type="checkbox"> Tare vs loaded ticket differentiation in payload</li>
+<li><input disabled="" type="checkbox"> FastWeigh endpoint registration model (single vs per-customer)</li>
+</ul>
+<p><strong>Code cleanup:</strong></p>
+<ul>
+<li><input disabled="" type="checkbox"> Update unit tests to match raw SQL approach (tests use mocked model methods, controller now uses sequelize.query)</li>
+<li><input disabled="" type="checkbox"> Add <code>stop()</code> method to <code>ThreadCloudWebsocket</code> (NVR log showed missing method error)</li>
+<li><input disabled="" type="checkbox"> Restore signed <code>dview.jar</code> on VM4001 (JNLP broken by unsigned jar deployment)</li>
+<li><input disabled="" type="checkbox"> Add <code>FASTWEIGH_WEBHOOK_SECRET</code> to staging/production env configs</li>
+</ul>
+<p><strong>v2 features (UPDATED 2026-05-22):</strong></p>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> <del>CloudAPI auto-linking of tare + loaded transactions by LPN</del> <strong>OBSOLETE</strong> — LPR off (no LPN); see <code>architecture.md</code> § 0c and forthcoming <code>transaction-lifecycle-deep-dive.md</code> for the paired-main-transaction approach we&#39;ll use instead, contingent on FastWeigh correlation key.</li>
+<li><input disabled="" type="checkbox"> Portal display for transaction detail with measurement + permit panels (Phase 6, see <code>cross-repo-status.md</code>)</li>
+<li><input checked="" disabled="" type="checkbox"> <del>Overweight permit management system</del> <strong>OBSOLETE</strong> — built as event-based, no management system needed; see ADR-006 + ADR-007.</li>
+<li><input checked="" disabled="" type="checkbox"> <del>Axle measurement tool in portal</del> <strong>OBSOLETE</strong> — built in spot-decoder C, not portal; see ADR-003.</li>
+</ul>
+<hr>
+<h2>7. File Reference</h2>
+<h3>CloudAPI (cloudapi repo, branch tasks/86b9y6jc5)</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>app/controllers/scalewatcher/fastweigh.js</code></td>
+<td>Webhook receiver, normalizer, WS push, fallback</td>
+</tr>
+<tr>
+<td><code>app/controllers/scalewatcher/index.js</code></td>
+<td>Added fastweigh export</td>
+</tr>
+<tr>
+<td><code>app/routes/scalewatcher.js</code></td>
+<td>Added POST /sw/webhooks/fastweigh route</td>
+</tr>
+<tr>
+<td><code>app/server.js</code></td>
+<td>Added ticket_event WebSocket routing</td>
+</tr>
+<tr>
+<td><code>app/app.js</code></td>
+<td>Raw body middleware for webhook path</td>
+</tr>
+<tr>
+<td><code>app/models/webhooklog.js</code></td>
+<td>SW_WebhookLog Sequelize model</td>
+</tr>
+<tr>
+<td><code>app/migrations/20260518000000-create-sw-webhook-log.js</code></td>
+<td>Migration</td>
+</tr>
+<tr>
+<td><code>db/init.sql</code></td>
+<td>SW_WebhookLog table definition</td>
+</tr>
+<tr>
+<td><code>app/tests/__tests__/fastweighWebhook.test.js</code></td>
+<td>17 integration tests</td>
+</tr>
+<tr>
+<td><code>app/tests/mock-fastweigh-webhook.js</code></td>
+<td>Mock webhook sender for testing</td>
+</tr>
+<tr>
+<td><code>app/.env</code></td>
+<td>Added FASTWEIGH_WEBHOOK_SECRET</td>
+</tr>
+</tbody></table>
+<h3>NVR (nvr repo, branch tasks/86b9y6jc5)</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>recorder/src/scalewatcher/thread_cloud_websocket.py</code></td>
+<td>ticket_event handler + ticketPushEvent dispatcher</td>
+</tr>
+<tr>
+<td><code>recorder/src/thread_main.py</code></td>
+<td>Wire cloud WS to bType==19 truck transaction</td>
+</tr>
+<tr>
+<td><code>dview/src/.../setup/pos/PosController.java</code></td>
+<td>POS type-change save bug fix</td>
+</tr>
+</tbody></table>
+<h3>Test environment</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Location</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Local CloudAPI Docker</td>
+<td>localhost:8081</td>
+</tr>
+<tr>
+<td>Dev NVR (VM4001)</td>
+<td>192.168.0.141 (serial 4001)</td>
+</tr>
+<tr>
+<td>VM host</td>
+<td>192.168.0.144 (Intel Mac mini)</td>
+</tr>
+<tr>
+<td>NVR shared mount</td>
+<td>/rda/devel/nvr -&gt; 0.144:~/Desktop/dev_projects/nvr</td>
+</tr>
+<tr>
+<td>Webhook secret (test)</td>
+<td>whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>8. Configuration Notes</h2>
+<h3>NVR globals for local testing (on VM4001)</h3>
+<pre><code>GB[&#39;cloud-api&#39;] = &#39;http://192.168.0.162:8081&#39;
+GB[&#39;cloud-ws&#39;]  = &#39;ws://192.168.0.162:8081&#39;
+</code></pre>
+<p><strong>Restore to production after testing:</strong></p>
+<pre><code>GB[&#39;cloud-api&#39;] = &#39;https://api.cloud.dividia.net&#39;
+GB[&#39;cloud-ws&#39;]  = &#39;wss://api.cloud.dividia.net:443&#39;
+</code></pre>
+<h3>Required gate file for cloud WebSocket</h3>
+<p><code>/root/.recorder_cloudsw</code> must exist on the NVR for the cloud WebSocket thread to start.</p>
+<h3>POS configuration on VM4001</h3>
+<ul>
+<li>POS: &quot;Scale 1&quot;, PosType 19 (Scale Watcher)</li>
+<li>TCP Listen Port: 6501</li>
+<li>Start Transaction: Ticket_Received</li>
+<li>Finish Transaction: Ticket_Received</li>
+<li>Camera: CAM 1 on Ticket_Received</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>

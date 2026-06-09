@@ -1,0 +1,335 @@
+/* ============ Reset + base ============ */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: #1f2937;
+  background: #f7f8fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============ Layout ============ */
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+}
+
+aside.sidebar {
+  background: #0f172a;
+  color: #cbd5e1;
+  padding: 24px 18px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid #1e293b;
+}
+
+aside.sidebar h1 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  margin: 0 0 6px 0;
+  font-weight: 600;
+}
+
+aside.sidebar h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin: 22px 0 8px 0;
+  font-weight: 600;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 6px;
+}
+
+aside.sidebar p.subtitle {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 14px 0;
+}
+
+aside.sidebar a {
+  display: block;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 14px;
+  padding: 6px 10px;
+  margin: 2px 0;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+aside.sidebar a:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+aside.sidebar a.active {
+  background: #1e40af;
+  color: white;
+}
+
+aside.sidebar a.external::after {
+  content: " ↗";
+  font-size: 10px;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+aside.sidebar .meta {
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid #1e293b;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+main.content {
+  max-width: 940px;
+  padding: 36px 56px 80px 56px;
+  background: white;
+  min-height: 100vh;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  aside.sidebar {
+    position: relative;
+    height: auto;
+    width: 100%;
+  }
+  main.content {
+    padding: 24px 22px 60px 22px;
+    max-width: 100%;
+  }
+}
+
+/* ============ Typography ============ */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
+  margin-top: 1.6em;
+  margin-bottom: 0.5em;
+}
+
+h1 { font-size: 30px; margin-top: 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; }
+h2 { font-size: 22px; margin-top: 2em; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px; }
+h3 { font-size: 17px; color: #1e293b; }
+h4 { font-size: 15px; color: #334155; }
+
+p { margin: 0.8em 0; }
+
+a { color: #1e40af; text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: #1e3a8a; }
+
+strong { color: #0f172a; }
+em { color: #475569; }
+
+ul, ol { padding-left: 1.5em; margin: 0.6em 0; }
+li { margin: 4px 0; }
+li > p { margin: 0; }
+
+hr {
+  border: 0;
+  height: 1px;
+  background: #e5e7eb;
+  margin: 2em 0;
+}
+
+/* ============ Tables ============ */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 14px;
+  border: 1px solid #e5e7eb;
+}
+
+th, td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+th {
+  background: #f1f5f9;
+  font-weight: 600;
+  color: #0f172a;
+  border-bottom: 2px solid #cbd5e1;
+}
+
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: #fafbfc; }
+
+/* ============ Code ============ */
+code {
+  background: #f1f5f9;
+  color: #be123c;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+}
+
+pre {
+  background: #0f172a;
+  color: #f1f5f9;
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+/* ============ Blockquotes / Callouts ============ */
+blockquote {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  margin: 1.4em 0;
+  padding: 14px 18px;
+  border-radius: 0 8px 8px 0;
+  color: #78350f;
+}
+
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+
+blockquote table {
+  background: white;
+  font-size: 13px;
+}
+
+blockquote strong { color: #78350f; }
+
+/* ============ Inline OPEN markers ============ */
+strong:has(+ *), em {
+  /* placeholder */
+}
+
+/* The [OPEN Q#N] markers appear as <strong>[OPEN Q#N]</strong> in rendered HTML.
+   Style them as inline flags. */
+.content strong {
+  /* default — applies to all strong; the OPEN-specific is below */
+}
+
+/* Match the [OPEN Q#N] pattern - use a class added at render time */
+.open-marker {
+  display: inline-block;
+  background: #fef08a;
+  color: #713f12;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin: 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: baseline;
+  border: 1px solid #ca8a04;
+  text-decoration: none;
+}
+a.open-marker:hover { background: #fde047; color: #422006; }
+
+/* ============ Top header bar ============ */
+header.topbar {
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 56px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #64748b;
+}
+
+header.topbar .doc-title {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+header.topbar .breadcrumb a {
+  color: #1e40af;
+  text-decoration: none;
+}
+
+/* ============ Embeds ============ */
+.embed-wrap {
+  margin: 1.4em 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.embed-wrap.pdf { height: 700px; }
+.embed-wrap.map { height: 460px; }
+
+.embed-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.embed-caption {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: #475569;
+  background: #f1f5f9;
+  border-top: 1px solid #e5e7eb;
+}
+
+.embed-caption a {
+  margin-left: 8px;
+}
+
+/* ============ Print ============ */
+@media print {
+  aside.sidebar, header.topbar { display: none; }
+  main.content { max-width: 100%; padding: 0; }
+  body { background: white; font-size: 11pt; }
+  a { color: black; text-decoration: none; }
+  .embed-wrap { page-break-inside: avoid; }
+}
+
+/* ============ Utility ============ */
+.callout-info {
+  background: #dbeafe;
+  border-left: 4px solid #2563eb;
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  margin: 1.2em 0;
+  color: #1e3a8a;
+}
+
+.callout-warn {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  margin: 1.2em 0;
+  color: #78350f;
+}
+
+.muted { color: #64748b; }
+.text-small { font-size: 0.9em; }

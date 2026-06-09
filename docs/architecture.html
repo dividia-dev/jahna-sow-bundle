@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html" class="active">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Architecture</div></header>
+    <h1>Architecture — Jahna FastWeigh Integration</h1>
+<blockquote>
+<p>Cross-repo design with every factual claim labeled <strong>[VERIFIED file:line]</strong> or <strong>[ASSUMED]</strong>. When you verify an ASSUMED fact, promote it to VERIFIED with a cite. When you discover a new assumption baked into code, demote it to ASSUMED with a <code>// TODO verify</code> note.</p>
+</blockquote>
+<p><strong>Last refresh:</strong> 2026-06-02 — confirmed the provider-agnostic correlation model in § 1a remains current; explicitly anchored that <strong>tare↔loadout pairs on a configurable PosType19 field (<code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code>), defaulting to <code>truck_id</code>, identical for Apex XML and FastWeigh JSON</strong>. Any older <code>transactionGuid</code> / <code>ticketPending</code> / Tier 1/2/3 language elsewhere in the hub is <strong>superseded</strong> — see <code>paired-mode-flow.md</code> for current mechanics. &quot;How we hand FastWeigh our measurement data&quot; (XML drop / write-back / etc.) is parked, <strong>not in current test scope</strong>.</p>
+<p><strong>Earlier refresh:</strong> 2026-05-23 — added Scale Watcher feature-stack section (§ 1a) describing the four-layer model adopted by migration <code>20260523-sw-feature-stack</code>.</p>
+<hr>
+<h2>1a. Scale Watcher feature stack (added 2026-05-23)</h2>
+<p>Scale Watcher is a layered product. Each layer is independently togglable per <code>PosType19</code> row.  This came from the David Smith reframing on 2026-05-23 once the FastWeigh integration made it clear &quot;APEX vs FastWeigh vs CommandCloud&quot; is an input-channel axis, not a behavior switch — every downstream layer is provider-agnostic.</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Toggle field</th>
+<th>Provider-dependent</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0. Input channel</td>
+<td><code>PosType19.sTicketSource</code> (enum: <code>apex</code>, <code>fastweigh</code>, <code>commandcloud</code>)</td>
+<td>drives UI section visibility only</td>
+<td>wire-side <code>provider</code> tag on each ticket is authoritative for runtime; declared field is sanity-checked at receive time</td>
+</tr>
+<tr>
+<td>1. Local recording</td>
+<td>always-on</td>
+<td>no</td>
+<td>every scale saves tickets + images locally for network-share lookup</td>
+</tr>
+<tr>
+<td>2. Cloud upload</td>
+<td><code>PosType19.fCloudUpload</code> (per-row) gated by system-level <code>Misc.fCloudSw</code> master</td>
+<td>no</td>
+<td>promoted from system-only to per-row so multi-scale sites can opt some scales out</td>
+</tr>
+<tr>
+<td>3. Paired tare/loadout</td>
+<td><code>PosType19.fPairTareLoadout</code> (per-row) + <code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code></td>
+<td>no</td>
+<td>works for any provider; merges tare + loadout into one cloud transaction</td>
+</tr>
+<tr>
+<td>4a. Axle measurement</td>
+<td><code>PosType19.fMeasurement</code> + <code>sMeasurementSource</code> (per-row)</td>
+<td>no</td>
+<td>promoted from <code>GB[&#39;measurement-source&#39;]</code> global to per-row so 2-scale sites can tag tare-A vs loadout-B independently; GB var retained as fallback for legacy single-scale sites</td>
+</tr>
+<tr>
+<td>4b. Permit validation</td>
+<td><code>PosType19.fPermitValidation</code> (per-row)</td>
+<td>no</td>
+<td>promoted from <code>GB[&#39;permit-source&#39;]</code> global; GB var retained as fallback</td>
+</tr>
+</tbody></table>
+<p><strong>Provider-agnostic above layer 0.</strong> All four upper layers work identically regardless of which input channel feeds layer 1. The <code>CloudTicket</code> adapter (recorder <code>thread_ticket_reader.py:84</code>) is the abstraction primitive that makes this work — APEX XML and cloud JSON tickets become interchangeable to every downstream caller.</p>
+<p><strong>Sanity check at receive.</strong> <code>thread_truck_transaction.py:_saveTicket</code> compares the wire <code>provider</code> tag against <code>PosType19.sTicketSource</code>. The apex-declared / cloud-arriving case is silently allowed (legacy migration path); other mismatches log a <code>PROVIDER MISMATCH</code> errMsg with both values so support can find the misconfiguration.</p>
+<p><strong>Migration</strong>: <code>20260523-sw-feature-stack.py</code> adds five PosType19 columns (<code>sTicketSource</code>, <code>fCloudUpload</code>, <code>fMeasurement</code>, <code>sMeasurementSource</code>, <code>fPermitValidation</code>) and creates <code>TicketLog</code> — a generic per-receive archive that replaces <code>ApexLog</code> for non-APEX providers (whose string-shaped uniqueids don&#39;t fit <code>ApexLog.bUniqueID BIGINT</code>). <code>ApexLog</code> stays in place for legacy APEX flow until that path migrates separately.</p>
+<hr>
+<h2>0. Customer &amp; operational context</h2>
+<p>All facts in this section <strong>[VERIFIED — customer call 2026-05-21]</strong> via cloudapi memory <code>project_jahna_email_response_20260521.md</code> and <code>reference_jahna_customer.md</code>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Customer</td>
+<td>E.R. Jahna Industries — hydraulic dredge sand mining, HQ Lake Wales FL, 51-200 employees, CEO Sam Morrone</td>
+</tr>
+<tr>
+<td>Sites</td>
+<td>6 mines: Green Bay (Davenport FL), Haines City, Independent North/South (Clermont), Ortona (Moore Haven), Savannah (Fleming GA), Hilochee. <strong>Hilochee + Savannah currently lack AxlEye</strong> — Hilochee runs single scale with weekly/monthly tare; Savannah has camera-location issues.</td>
+</tr>
+<tr>
+<td>Test site</td>
+<td><strong>Van Fleet</strong> — rollout starts here</td>
+</tr>
+<tr>
+<td>Volume</td>
+<td>~1400 loads Mon-Fri, ~50 weekend, across all sites</td>
+</tr>
+<tr>
+<td>Hauler</td>
+<td>S&amp;R Logistics — independent owner-operators (drivers haul for multiple carriers and switch trailers mid-day, which is why permits are per-permittee not per-vehicle)</td>
+</tr>
+<tr>
+<td>Scale hardware</td>
+<td><strong>Serial-output scale indicators</strong> brought onto IP via Moxa NPort 5110 (serial-to-Ethernet, 2 per typical site = 1 inbound + 1 outbound) · 1-2 inbound + 1-2 outbound scales per site · indicator make/model assumed Mettler Toledo IND780 but not 100% confirmed (verify on site walk). <strong>[CORRECTED 2026-06-09 — David]</strong> prior &quot;IP-based scales (no Moxa)&quot; claim was wrong; the Moxas on quote 17938 exist precisely because the scale indicators are serial.</td>
+</tr>
+<tr>
+<td>Camera hardware</td>
+<td><strong>Uniview IPC2324SR5-ADZK-G</strong> — full side view, measurement camera · <strong>Uniview IPC3635SB-ADZK-I0</strong> — mounted at driver window, QR permit camera</td>
+</tr>
+<tr>
+<td>Existing stack we replace</td>
+<td>AxlEye (axle measurement, runs on local PC) + DataBridge (middleware — see § 0a below)</td>
+</tr>
+<tr>
+<td>Existing stack we keep</td>
+<td>FastWeigh (cloud ticketing) — we consume webhooks</td>
+</tr>
+<tr>
+<td>FastWeigh vendor</td>
+<td>TAC Insight — <a href="mailto:support@tacinsight.com">support@tacinsight.com</a> / 865-219-2980 / portal.fast-weigh.com / Brad Artis on email thread</td>
+</tr>
+<tr>
+<td>FDOT permits</td>
+<td><code>pas.fdot.gov</code> public URL via QR code on every permit (no credentials, see ADR-007) · FDOT Permit Office: (850) 410-5777 M-F 8AM-5PM ET</td>
+</tr>
+</tbody></table>
+<h3>0a. DataBridge scope — much smaller than initially assumed</h3>
+<p><strong>[VERIFIED — customer call 2026-05-21]:</strong> <em>&quot;DataBridge scope — Only other function beyond AxlEye: plugin that renames jpg+xml with ticket# and timestamp. No other plugins/integrations to worry about.&quot;</em></p>
+<p>This is a single point of leverage for quoting. <strong>Replacing DataBridge means replacing AxlEye (which we already do) plus one tiny file-rename behavior</strong> — not replacing a meaningful orchestration layer. The Tier 2 / Tier 3 quote scope should reflect this.</p>
+<h3>0b. Operational rules (must be honored in code or workflow)</h3>
+<ol>
+<li><strong>Measurement is INBOUND/tare ONLY.</strong> Loader tablet needs max weight BEFORE loading. No re-measurement on outbound.</li>
+<li><strong>Drop axle MUST be deployed for inbound measurement.</strong> If the driver doesn&#39;t drop axle, they don&#39;t get extra weight — the truck physically can&#39;t position for valid axle measurement. Mention in operator UI, validate visually in the measurement screenshot if possible.</li>
+<li><strong>Permit shown by driver every truck, every time.</strong> No exceptions, even returning drivers. Permits are per-permittee, not per-vehicle.</li>
+<li><strong>Mini-wheelers (dump trucks) skip measurement.</strong> Operator clicks tire count: 3 tires → 64,500 lbs cap · 4 tires → 70,000 lbs cap. Photo only, no axle measurement. UI affordance needed.</li>
+<li><strong>Trucks without OW permit fall back to standard bridge formula</strong> based on FL DOT table + truck length. Most trucks DO have OW permits.</li>
+</ol>
+<h3>0c. The customer&#39;s real operational flow (from customer call)</h3>
+<p>This is the &quot;tare scale sequence&quot; — everything happens while the truck is on the inbound scale:</p>
+<ol>
+<li>Truck pulls onto tare scale</li>
+<li>Driver holds up permit to QR camera at scale-house window</li>
+<li>System reads QR, validates against FDOT public URL, captures permit PDF</li>
+<li>Measurement camera captures full side view; operator/system measures axles (with drop axle deployed)</li>
+<li>Files dropped to shared folder (this is what AxlEye + DataBridge does today; we replace this end-to-end)</li>
+<li>Operator in scale-house UI: select hauler / truck / customer / contract, click &quot;Get Weight&quot;, click &quot;Accept&quot;</li>
+<li>Truck marked <strong>InYard with predetermined max weight → loader tablets see it</strong></li>
+<li>Truck drives to loading circle, gets loaded against that max-weight target</li>
+<li>Returns to outbound scale; operator selects from InYard, adjusts weight with clam-shell bucket, clicks &quot;Complete&quot; → ticket closed, PDF printed (no pictures on PDF), some customers also get emailed ticket</li>
+</ol>
+<p>The loader-tablet feed at step 7 is the open Tier-2/3 scope question — see § 10 item 4.</p>
+<hr>
+<h2>1. The end-to-end flow</h2>
+<pre><code>[FastWeigh Cloud]
+       │ Svix webhook: ticket.created (raw JSON ticket)
+       ▼
+[CloudAPI] POST /sw/webhooks/fastweigh
+       │ HMAC verify · prepareTicket (raw pass-through, +provider tag)
+       │ findNvrClient(serial) by WebSocket connection registry
+       ▼
+[CloudAPI → NVR] WebSocket push
+       {type:&quot;ticket_event&quot;, serial, data:{provider:&quot;fastweigh&quot;, port, ticket, number}}
+       ▼
+[NVR recorder] thread_cloud_websocket on_message
+       │ Wraps dict in CloudTicket adapter
+       │ Fires Ticket_Received event into thread_truck_transaction
+       ▼
+[NVR recorder] TruckTransaction state machine
+       │ STATE_WAITING → STATE_PROCESSING
+       │   accumulate events into cloudEvents[] and images into imgs[]
+       │ on STATE_FINISHED:
+       │   • measurement_client.get() — GET spot-decoder:88/?stream=N&amp;measurement=status
+       │   • permit_client.get(qr_text) — FDOT PAS verify + PDF download
+       │   • append Measurement_Recorded + Permit_Validated events
+       ▼
+[NVR recorder] thread_cloud_sw
+       │ Serializes batch to JSON file in GB[&#39;clouddir&#39;]
+       │ POST /sw/  with all events for this truck (single batch, single shot)
+       ▼
+[CloudAPI] POST /sw/ → transactionController.create
+       │ ONE INSERT into SW_Transaction
+       │ Parse events to extract summary (sLpn, bTicket, sTruck, bAxleCount, fBridgePass)
+       │ ONE UPDATE on SW_Transaction with summary
+       │ Batch INSERT all SW_Event rows under that transaction id
+       │ (CloudAPI never updates a previously-inserted transaction from a later upload)
+       ▼
+[ScaleWatcher Portal — not started for Jahna yet]
+       Future: measurement panel in transaction detail · measurement history · permit panel
+</code></pre>
+<h2>2. The NVR transaction lifecycle (cleared blocker)</h2>
+<p>This was the open question that blocked CloudAPI design. <strong>VERIFIED 2026-05-22</strong> by reading the NVR source.</p>
+<p><strong>NVR side is fire-and-forget per truck, append-only, single batch upload.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>When does a transaction begin on NVR?</td>
+<td>When a <code>Ticket_Received</code> event arrives — either from the local POS reader OR from the CloudAPI WebSocket <code>ticket_event</code> message</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_ticket_reader.py:567]</strong> <strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_cloud_websocket.py:82-87]</strong></td>
+</tr>
+<tr>
+<td>Does NVR hold an &quot;open&quot; transaction across multiple uploads?</td>
+<td>No. Single <code>TruckTransaction</code> object holds all events in <code>cloudEvents[]</code> until <code>STATE_FINISHED</code>, then uploads once</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py:617-691, :827]</strong></td>
+</tr>
+<tr>
+<td>What triggers <code>STATE_FINISHED</code>?</td>
+<td>Scale event or ticket receipt completes the truck flow (per state machine in <code>event.py</code>)</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/event.py:50-87]</strong></td>
+</tr>
+<tr>
+<td>Does NVR ever revise a previously-uploaded transaction?</td>
+<td>No. Events are append-only into <code>cloudEvents[]</code>; on finish the complete list is uploaded once and the object is destroyed</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py:827]</strong></td>
+</tr>
+<tr>
+<td>What gets uploaded together?</td>
+<td>The full event list + image list for one truck</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_cloud_sw.py:172-189]</strong></td>
+</tr>
+<tr>
+<td>Where does it go?</td>
+<td>POST to CloudAPI <code>/sw/</code> with <code>Authorization: Bearer {token}</code>, file-queued by <code>ThreadCloudSW</code>; on 200 the local JSON file is deleted</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_cloud_sw.py:113-118, :131-137]</strong></td>
+</tr>
+</tbody></table>
+<h2>3. The CloudAPI transaction insert path</h2>
+<p><strong>CloudAPI side is insert-only per upload. VERIFIED 2026-05-22.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Route</td>
+<td><code>POST /sw/</code> → <code>transactionController.create</code></td>
+<td><strong>[VERIFIED cloudapi/app/routes/scalewatcher.js:78, app/controllers/scalewatcher/transaction.js:591-938]</strong></td>
+</tr>
+<tr>
+<td>Insert</td>
+<td>One <code>INSERT INTO SW_Transaction (bSerial, bScale, dTimestamp, …) VALUES (…)</code> per upload</td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/transaction.js:651-671]</strong></td>
+</tr>
+<tr>
+<td>Update</td>
+<td>Single follow-up <code>UPDATE SW_Transaction SET sLpn=?, bTicket=?, sTruck=?, bAxleCount=?, fBridgePass=? WHERE id=?</code> to backfill summary fields parsed from events</td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/transaction.js:885-894]</strong></td>
+</tr>
+<tr>
+<td>Events</td>
+<td>Single batch <code>INSERT INTO SW_Event</code> for all events under the new transaction id</td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/transaction.js:898-917]</strong></td>
+</tr>
+<tr>
+<td>Idempotency / dedup</td>
+<td>None at this layer <strong>[ASSUMED — needs check]</strong> — NVR is responsible for not retrying after 200, deletes its queued file on success</td>
+<td><strong>[ASSUMED]</strong></td>
+</tr>
+</tbody></table>
+<p>Together with §2, this means: <strong>NVR is the source of truth for transaction boundaries. CloudAPI is a write-through ledger.</strong> No multi-upload merging, no transaction revision.</p>
+<h2>4. The FastWeigh webhook receiver</h2>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Route</td>
+<td><code>POST /sw/webhooks/fastweigh</code></td>
+<td><strong>[VERIFIED cloudapi/app/routes/scalewatcher.js:275, app/controllers/scalewatcher/fastweigh.js]</strong></td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>Svix library, SHA256 HMAC, <code>FASTWEIGH_WEBHOOK_SECRET</code> env var</td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/fastweigh.js:158-180]</strong></td>
+</tr>
+<tr>
+<td>Normalization</td>
+<td>None. <code>prepareTicket(webhookData)</code> strips routing fields (<code>serial</code>, <code>port</code>, <code>type</code>), tags <code>provider:&#39;fastweigh&#39;</code>, otherwise raw pass-through</td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/fastweigh.js:25-40]</strong></td>
+</tr>
+<tr>
+<td>NVR routing</td>
+<td><code>findNvrClient(serial)</code> over WebSocket registry; <code>pushTicketToNvr</code> sends <code>{type:&#39;ticket_event&#39;, serial, data:{…}}</code></td>
+<td><strong>[VERIFIED cloudapi/app/controllers/scalewatcher/fastweigh.js:56-74]</strong></td>
+</tr>
+<tr>
+<td>Test coverage</td>
+<td>17 unit tests in <code>app/tests/__tests__/fastweighWebhook.test.js</code> plus mock sender <code>app/tests/mock-fastweigh-webhook.js</code></td>
+<td><strong>[VERIFIED cloudapi]</strong></td>
+</tr>
+<tr>
+<td>Real-credential test</td>
+<td>Not yet — pending Jahna providing webhook access to a real FastWeigh account</td>
+<td><strong>[OPEN — see open-questions.md §1.1]</strong></td>
+</tr>
+</tbody></table>
+<h2>5. The measurement subsystem</h2>
+<h3>5a. Spot-decoder (C, runs on the Jahna site appliance)</h3>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Lines of source</td>
+<td><code>measurement.c</code> 838 lines, <code>measurement.h</code> ~80 lines</td>
+<td><strong>[VERIFIED nvr/spot-decoder/src/]</strong></td>
+</tr>
+<tr>
+<td>Tests</td>
+<td>111/111 passing in <code>tests/test_bridge_formula</code> (single axle 20K, tandem 34K, GVW 80K, FL special 70K, normalized→inches calibration, distance formatting, all rounding cases)</td>
+<td><strong>[VERIFIED nvr/spot-decoder/docs/PROGRESS.md:47-59]</strong></td>
+</tr>
+<tr>
+<td>Coordinate system</td>
+<td>Normalized 0.0–1.0 (resolution-independent) — same convention as cv-axle-controller reference</td>
+<td><strong>[VERIFIED nvr/spot-decoder/src/measurement.h:25-30]</strong> <strong>[VERIFIED cv-axle-controller/web-app/src/calibration.js:3, :60-69]</strong></td>
+</tr>
+<tr>
+<td>Bridge formula</td>
+<td>Federal Bridge Formula B (23 USC 127) + Florida 316.535 special caps. <code>W = 500 × ((L×N)/(N-1) + 12N + 36)</code> rounded to nearest 500</td>
+<td><strong>[VERIFIED nvr/spot-decoder/src/measurement.c (838 lines)]</strong> <strong>[VERIFIED cv-axle-controller/web-app/src/bridge-formula.js:25-59]</strong></td>
+</tr>
+<tr>
+<td>HTTP API (port 88)</td>
+<td><code>GET /?stream=N&amp;measurement=status</code> (read) · <code>&amp;measurement=calibrate&amp;feet=F&amp;inches=I</code> (save calibration) · <code>&amp;measurement=set&amp;axle_count=N</code> · <code>&amp;measurement=set&amp;special_vehicle=1</code> · <code>&amp;measurement=reset</code> · <code>&amp;measurement=save_config</code></td>
+<td><strong>[VERIFIED nvr/spot-decoder/src/http_thread.c]</strong></td>
+</tr>
+<tr>
+<td>Persistence</td>
+<td>INI file via <code>ini_parse</code>; calibration + axle count + special vehicle flag persist across restarts</td>
+<td><strong>[VERIFIED nvr/spot-decoder/src/conf.c, measurement.c]</strong></td>
+</tr>
+<tr>
+<td>Hardware test status</td>
+<td>Phase 2 BLOCKED on Ubuntu Mac availability + Arduino USB HID controller VID:PID identification</td>
+<td><strong>[OPEN — see open-questions.md and nvr/spot-decoder/docs/PROGRESS.md]</strong></td>
+</tr>
+</tbody></table>
+<h3>5b. NVR recorder ↔ spot-decoder bridge</h3>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Trigger</td>
+<td><code>_handleFinishedState()</code> calls <code>measurement_client.get()</code> once per truck on transaction close</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py:710-762]</strong></td>
+</tr>
+<tr>
+<td>Contract</td>
+<td>GET <code>http://{host}:{port}/?stream=N&amp;measurement=status</code> returns JSON with <code>axle_count, distance_ft, distance_inches, calibrated, max_allowable, formula_weight, line1_pos, line2_pos, bridge_formula{passed,calculated_limit,outer_bridge_ft}, save_timestamp</code></td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/measurement_client.py:30-80]</strong></td>
+</tr>
+<tr>
+<td>Screenshot</td>
+<td>Companion fetch returns JPEG bytes with overlay rendered in</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/measurement_client.py]</strong></td>
+</tr>
+<tr>
+<td>Staleness</td>
+<td><code>save_timestamp</code> vs <code>stale_threshold_s</code> (default 300s); stale measurement still returned with <code>stale:true</code> flag</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/measurement_client.py]</strong></td>
+</tr>
+<tr>
+<td>Failure mode</td>
+<td>Returns <code>None</code>, fires <code>Alert_NoMeasurement</code> event into the transaction batch</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py:759]</strong></td>
+</tr>
+<tr>
+<td>Inbound vs outbound</td>
+<td>Customer requires <strong>INBOUND/tare ONLY</strong> measurement so loader tablet sees max weight BEFORE loading. NVR code currently runs on every <code>STATE_FINISHED</code> regardless of tare/loaded — <strong>enforcement is the gap, not the direction</strong>. Either restrict the trigger to tare events, or only allow <code>measurement_client.get()</code> when the active ticket is the inbound side of a trip.</td>
+<td><strong>[VERIFIED — customer call 2026-05-21]</strong> via memory <code>project_jahna_email_response_20260521.md</code> §1. <strong>[ASSUMED — code enforcement still TODO]</strong></td>
+</tr>
+</tbody></table>
+<h3>5c. CloudAPI measurement storage</h3>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Dedicated table</td>
+<td><strong>NO.</strong> Decision recorded in <code>decisions.md</code> and <code>measurement-integration-plan.md</code> § 4. Measurement rides as <code>MeasurementRecorded</code> event row in <code>SW_Event</code> (full payload in <code>sData</code>)</td>
+<td><strong>[VERIFIED cloudapi/docs/jahna-fastweigh/measurement-integration-plan.md]</strong></td>
+</tr>
+<tr>
+<td>Summary on SW_Transaction</td>
+<td><code>bAxleCount</code> (int) and <code>fBridgePass</code> (tinyint) columns added so portal can list/filter without parsing event JSON</td>
+<td><strong>[VERIFIED cloudapi/app/migrations/20260520000000-add-sw-transaction-measurement-columns.js]</strong> <strong>[VERIFIED cloudapi/db/init.sql]</strong></td>
+</tr>
+<tr>
+<td>WebSocket <code>measurement_event</code> channel</td>
+<td>Not implemented and not planned at CloudAPI — measurement reaches CloudAPI piggybacked on the per-truck transaction upload, not as its own event</td>
+<td><strong>[VERIFIED cloudapi — by absence]</strong></td>
+</tr>
+</tbody></table>
+<h2>6. The permit subsystem</h2>
+<h3>6a. NVR permit_client (built, untested at scale)</h3>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Source</td>
+<td><code>nvr/recorder/src/scalewatcher/permit_client.py</code> (541 lines)</td>
+<td><strong>[VERIFIED]</strong></td>
+</tr>
+<tr>
+<td>Trigger</td>
+<td>If QR text appears in transaction events and <code>permit-source = &#39;qr&#39;</code> configured, called from <code>_handleFinishedState()</code></td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py:770]</strong></td>
+</tr>
+<tr>
+<td>GUID extraction</td>
+<td>Regex for 8-4-4-4-12 UUID format in the QR text payload</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/permit_client.py:85-100]</strong></td>
+</tr>
+<tr>
+<td>FDOT PAS endpoints used</td>
+<td><code>GET pas.fdot.gov/Public/ViewPermit/{guid}</code> (HEAD for existence; body checked for &quot;Invalid Permit Identifier&quot;) · <code>GET pas.fdot.gov/Public.aspx/ShowPermitDocument/{guid}</code> (binary PDF, authoritative)</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/permit_client.py:63-172]</strong></td>
+</tr>
+<tr>
+<td>Why PDF over HTML scrape</td>
+<td>The ViewPermit page is ASP.NET with JS rendering — regex/BS scraping is fragile. PDF format is static enough to regex permit number, expiration, GVW, configuration, axle limits</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/permit_client.py header comment + :299-480]</strong></td>
+</tr>
+<tr>
+<td>Return shape</td>
+<td><code>{permit:{number,status,expiration,gvw,config,axle_limits,trip_type,…}, pdf:&lt;bytes&gt;, valid:bool, errors:[…], guid, fetched_at}</code></td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/permit_client.py:164-171]</strong></td>
+</tr>
+<tr>
+<td>Storage path on cloud</td>
+<td>PDF is appended to the transaction&#39;s <code>imgs[]</code> list and uploaded with the batch — stored as a transaction image, not a separate permit row</td>
+<td><strong>[VERIFIED nvr/recorder/src/scalewatcher/thread_truck_transaction.py]</strong></td>
+</tr>
+</tbody></table>
+<h3>6b. CloudAPI permit storage — design RESOLVED</h3>
+<p>Permits ride as <code>Permit_Validated</code> events in <code>SW_Event</code> and the PDF rides as a transaction image, by the same logic as ADR-002 for measurement. <strong>No dedicated <code>SW_Permit</code> table.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Behavior</th>
+<th>Cite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SW_Permit</code> table</td>
+<td><strong>Not built, not needed.</strong> Decision: permit data lives in the <code>Permit_Validated</code> SW_Event row (parsed fields in <code>sData</code> JSON) and the PDF lives as a transaction image. Same pattern as measurement (ADR-002)</td>
+<td><strong>[VERIFIED]</strong> see <code>decisions.md</code> ADR-006</td>
+</tr>
+<tr>
+<td><code>bPermit</code> FK column on SW_Transaction</td>
+<td><strong>Vestige</strong> from before the no-table decision settled — column exists, FK points at nothing. Safe to drop in a cleanup migration; not blocking anything</td>
+<td><strong>[VERIFIED <code>cloudapi/db/init.sql:636</code>]</strong></td>
+</tr>
+<tr>
+<td>Permit routes</td>
+<td>None — permit data reaches cloud via the per-truck transaction upload (event row + image), not a dedicated route</td>
+<td><strong>[VERIFIED]</strong></td>
+</tr>
+<tr>
+<td>PAS access</td>
+<td><strong>Public, no auth.</strong> The QR code on every FDOT overweight permit decodes to <code>https://pas.fdot.gov/Public/ViewPermit/{guid}</code>. That page is public; the clean PDF is at <code>https://pas.fdot.gov/Public.aspx/ShowPermitDocument/{guid}</code>. No PAS account, no credentials, no scraping the ASP.NET UI</td>
+<td><strong>[VERIFIED <code>nvr/recorder/src/scalewatcher/permit_client.py:7-9, :44</code>]</strong> <strong>[VERIFIED memory <code>project_permit_validation.md</code>]</strong></td>
+</tr>
+<tr>
+<td>Per-permittee vs per-truck</td>
+<td>Customer confirmed permits are per-permittee (drivers switch trailers mid-day). Doesn&#39;t matter for our storage model — we associate the permit <em>event</em> with the transaction we validated it on; nothing requires a separate permit entity</td>
+<td><strong>[VERIFIED open-questions.md §1.2 answered 2026-05-21]</strong></td>
+</tr>
+</tbody></table>
+<h2>7. The dview side (small)</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Change</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>nvr/dview/html/dview.php</code></td>
+<td>+3 lines: <code>&lt;resources os=&quot;Mac&quot; arch=&quot;aarch64&quot;&gt;</code> block</td>
+<td>Apple Silicon ARM64 FFmpeg JAR loading — supports dev/test on M-series Macs</td>
+</tr>
+<tr>
+<td><code>nvr/dview/html/eview.php</code></td>
+<td>+3 lines: same</td>
+<td>Same, for eView variant</td>
+</tr>
+<tr>
+<td><code>nvr/dview/src/net/dividia/dview/setup/pos/PosController.java:2621-2635</code></td>
+<td>+12 lines: guard in <code>doPosTypeUpdate()</code></td>
+<td>Prevents silent corruption when user changes POS type via UI (e.g., APEX → FastWeigh) — needed because Jahna POS type is now <code>FastWeigh</code> rather than APEX</td>
+</tr>
+</tbody></table>
+<p><strong>[VERIFIED nvr — agent inventory 2026-05-22]</strong></p>
+<h2>8. The cv-axle-controller side (reference-only)</h2>
+<p>Per the 2026-05-19 decision recorded in <code>cv-axle-controller/memory/project_spot_decoder_decision.md</code>, the browser/Node.js app is no longer the production tool — measurement UI moved to spot-decoder C because browser focus issues are unreliable in a multi-window operator environment. cv-axle-controller stays as:</p>
+<ul>
+<li>The <strong>math reference</strong> (bridge formula JS at <code>web-app/src/bridge-formula.js:25-59</code> is functionally identical to <code>nvr/spot-decoder/src/measurement.c</code>)</li>
+<li>The <strong>calibration UX reference</strong> (<code>web-app/src/calibration.js:3-39, :60-69</code>)</li>
+<li>The <strong>hardware test harness</strong> for the USB HID joystick / Arduino controller (firmware at <code>cv-axle-controller/firmware/</code>, last commit 2026-05-18 — actively developed)</li>
+<li>The <strong>PCB + enclosure source</strong> (<code>docs/pcb-spec.md</code>, <code>docs/enclosure-component-spec.md</code>)</li>
+</ul>
+<p><strong>The C port should preserve coordinate convention, formula constants, and weight-cap rules from the JS reference.</strong> [ASSUMED parity — would need a spot-check diff between <code>bridge-formula.js</code> and <code>measurement.c</code> if a discrepancy is suspected.]</p>
+<h2>9. The scalewatcher portal side</h2>
+<p><strong>[CORRECTED 2026-06-09 — David]</strong> Prior framing of &quot;Phase 6 needs Measurement Panel / Permit Panel / Measurement History page / new filters&quot; as discrete components was wrong. Reality:</p>
+<p>Portal renders <code>SW_Event</code> rows generically — each event type&#39;s <code>sData</code> JSON is parsed at render time, so new event types (<code>MeasurementRecorded</code>, <code>Permit_Validated</code>, <code>Permit_ScanAttempted</code>, etc.) display automatically when the recorder upload pushes them through. The delta needed for Jahna is <strong>icons + small frontend tweaks</strong> (icons for the new event types in the Transaction Board legend, tare-half opacity, conditional event-key legend keyed on recorder-side <code>tare:true</code> + <code>provider:</code> fields). That work landed on the Jahna portal work branch per <code>transaction-board-ui-plan.md</code>.</p>
+<p>No dedicated panels, no new transaction-detail components, no measurement-history page, no new filter UI. The event-renderer + sData parsing + icon set is the whole portal-side delta.</p>
+<p>Per agent inventory 2026-05-22 (portal infra state, still current):</p>
+<ul>
+<li>React 18.3.1, CRA, Dockerized, currently at v2026.2.1</li>
+<li>Current portal API consumes: <code>sw/transactionboarddata</code>, <code>sw/searchbyticket</code>, <code>sw/searchbytransactionnumber</code>, <code>sw/transactionbyid</code>, <code>sw/gettransactionalertcomments</code></li>
+</ul>
+<h2>10. Cross-cutting assumptions still on faith</h2>
+<p>These are the ASSUMED facts that aren&#39;t yet code-verified. Promote each to VERIFIED with a cite when proven.</p>
+<ol>
+<li><del>Measurement is INBOUND/tare only</del> <strong>RESOLVED — VERIFIED 2026-05-22</strong> via customer call 2026-05-21 (memory <code>project_jahna_email_response_20260521.md</code> §1). Loader tablet needs max weight BEFORE loading. Code enforcement still TODO — currently fires on every <code>STATE_FINISHED</code>. Track as code TODO, not as design assumption.</li>
+<li><strong>FastWeigh payload includes routing fields (<code>serial</code> or <code>nvr_serial</code>) so cloud knows which NVR to push to.</strong> <code>pushTicketToNvr</code> expects <code>serial</code>; not yet tested with real FastWeigh credentials. [open-questions.md §1.1]</li>
+<li><del>Permits are 1-to-N to transactions</del> <strong>RESOLVED 2026-05-22.</strong> No separate permit entity. Permit_Validated event captures everything per-transaction; <code>bPermit</code> FK column on SW_Transaction is a vestige. See ADR-006 in decisions.md.</li>
+<li><strong>Loader tablets are fed by DataBridge or FastWeigh today.</strong> We don&#39;t yet know how the inbound max-weight number reaches the loader operator. If we replace AxlEye+DataBridge wholesale, we may need to write data back to FastWeigh or push to a tablet display. <strong>This is potentially scope-expanding.</strong> [open-questions.md §1.0]</li>
+<li><strong>Permit type — divisible vs nondivisible.</strong> Aggregate is divisible (≤10% over bridge formula). Sample permit shown was nondivisible. <strong>This is critical for our weight-calculation logic</strong> but the answer hasn&#39;t come back from Jahna yet. [open-questions.md §1.2]</li>
+<li><strong>TransactionGuid origin.</strong> AxlEye XML carries a guid that links measurement to ticket — we don&#39;t yet know if FastWeigh generates it, AxlEye does, or DataBridge does. Critical for tying our measurement to the right ticket. [open-questions.md §1.3]</li>
+</ol>
+<h2>11. Where the data lives at rest</h2>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Authoritative store</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Truck-by-truck transaction with events</td>
+<td>CloudAPI <code>SW_Transaction</code> + <code>SW_Event</code></td>
+<td>One row per upload, no merging</td>
+</tr>
+<tr>
+<td>Axle measurement payload</td>
+<td><code>SW_Event.sData</code> JSON</td>
+<td><code>MeasurementRecorded</code> event type; summary on <code>SW_Transaction.bAxleCount</code> and <code>.fBridgePass</code></td>
+</tr>
+<tr>
+<td>Measurement screenshot</td>
+<td><code>SW_Event</code> image attachment <strong>[ASSUMED]</strong></td>
+<td>Whatever the existing event-image storage convention is — same path used by existing scalewatcher events</td>
+</tr>
+<tr>
+<td>Permit PDF</td>
+<td>Transaction image attachment (uploaded via NVR&#39;s <code>truck.imgs[]</code>)</td>
+<td>NOT a <code>SW_Permit</code> row yet</td>
+</tr>
+<tr>
+<td>Permit metadata</td>
+<td>Parsed at NVR, embedded in <code>Permit_Validated</code> event payload</td>
+<td>Cloud would need to lift fields out of the event JSON to populate a future <code>SW_Permit</code> table</td>
+</tr>
+<tr>
+<td>Spot-decoder calibration</td>
+<td>Local INI file on the appliance</td>
+<td>Survives restarts; not in cloud</td>
+</tr>
+</tbody></table>
+
+
+  </main>
+</div>
+</body>
+</html>

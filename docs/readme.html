@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hub overview (README) — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="index.html">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html">Architecture</a>
+<a href="docs/open-questions.html">Open questions</a>
+<a href="docs/decisions.html">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html">E2E test runbook</a>
+<a href="docs/measurement-plan.html">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html">Worklog (project hours)</a>
+<a href="docs/readme.html" class="active">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    <header class="topbar"><div class="breadcrumb"><a href="../index.html">← Back to Scope of Work</a></div><div class="doc-title">Hub overview (README)</div></header>
+    <h1>Jahna FastWeigh Integration — Project Hub</h1>
+<blockquote>
+<p><strong>This directory is the single source of truth for the Jahna FastWeigh project, which spans 4 repos. Any Claude/Codex session in any of those repos should read this README first.</strong></p>
+</blockquote>
+<p><strong>Hub maintained at:</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/</code>
+<strong>Last refresh:</strong> 2026-05-24</p>
+<hr>
+<h2>Project at a glance</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Customer</strong></td>
+<td>E.R. Jahna Industries — hydraulic dredge sand mining, FL, ~51-200 employees, CEO Sam Morrone, HQ Lake Wales</td>
+</tr>
+<tr>
+<td><strong>Sites</strong></td>
+<td>6 mines (Green Bay, Haines City, Independent N/S, Ortona, Savannah, Hilochee). Hilochee + Savannah currently lack AxlEye.</td>
+</tr>
+<tr>
+<td><strong>Test site (rollout)</strong></td>
+<td>Van Fleet (per customer call 2026-05-21)</td>
+</tr>
+<tr>
+<td><strong>Operational volume</strong></td>
+<td>~1400 loads Mon-Fri across all sites, ~50 on weekends</td>
+</tr>
+<tr>
+<td><strong>Hauler</strong></td>
+<td>S&amp;R Logistics — independent owner-operators (drivers switch trailers and carriers mid-day)</td>
+</tr>
+<tr>
+<td><strong>Scale software vendor</strong></td>
+<td>FastWeigh (<code>portal.fast-weigh.com</code>) — TAC Insight (<a href="mailto:support@tacinsight.com">support@tacinsight.com</a>, 865-219-2980). Ticket events via Svix webhooks. Brad Artis on email thread.</td>
+</tr>
+<tr>
+<td><strong>Existing system we replace</strong></td>
+<td>AxlEye (axle measurement on local PC) + DataBridge (a tiny middleware whose ONLY non-AxlEye function is a file-rename plugin — verified by customer 2026-05-21)</td>
+</tr>
+<tr>
+<td><strong>Hardware in place</strong></td>
+<td>Uniview IPC2324SR5-ADZK-G (measurement, full side view) · Uniview IPC3635SB-ADZK-I0 (QR permit, mounted at driver window) · serial-output scale indicators (Mettler Toledo IND780 assumed, not 100% confirmed) brought onto IP via Moxa NPort 5110 serial-to-Ethernet · 1-2 inbound + 1-2 outbound scales per site. <strong>[CORRECTED 2026-06-09 — David]</strong> prior &quot;IP-based scales (no Moxa)&quot; was wrong; Moxas in the quote exist precisely because the indicators are serial.</td>
+</tr>
+<tr>
+<td><strong>External regulator</strong></td>
+<td>Florida DOT — Permit Application System (<code>pas.fdot.gov</code>). Public URL access via QR code on permit — NO credentials needed.</td>
+</tr>
+<tr>
+<td><strong>Active Jahna branches per repo</strong></td>
+<td>cloudapi: <code>tasks/86b9y6jc5</code> (4 commits, incl. cherry-picked hotfix) · nvr: <code>feat/scalewatcher-feature-stack</code> (20+ commits, stacked on local <code>tasks/86b9y6jc5</code> foundation) · scalewatcher: not started (current <code>tasks/86b9y6jc5</code> is unrelated security cleanup == develop) · cv-axle-controller: reference-only (master) · spot-decoder: not started (master)</td>
+</tr>
+<tr>
+<td><strong>Phase</strong></td>
+<td>v1 webhook + measurement + permit E2E working on testbed; portal display + real FastWeigh credential test pending</td>
+</tr>
+</tbody></table>
+<h2>Critical operational rules (from customer call 2026-05-21)</h2>
+<ol>
+<li><strong>Measurement is INBOUND/tare ONLY.</strong> Loader tablet sees max weight BEFORE loading. No re-measurement on outbound.</li>
+<li><strong>Drop axle MUST be deployed for inbound measurement.</strong> If driver doesn&#39;t drop axle, they effectively don&#39;t get extra weight (the truck physically can&#39;t position for valid axle measurement).</li>
+<li><strong>Permits shown by driver every truck, every time.</strong> No exceptions — even returning drivers. Permits are per-permittee (carrier), not per-vehicle. Drivers haul for multiple carriers in a day.</li>
+<li><strong>Mini-wheelers (dump trucks) skip measurement.</strong> Operator clicks tire count: 3 tires = 64,500 lbs cap, 4 tires = 70,000 lbs cap. Photo only, no axle measurement.</li>
+<li><strong>Trucks without OW permit fall back to standard bridge formula</strong> based on FL DOT table + truck length. Most trucks DO have OW permits.</li>
+</ol>
+<h2>Mission</h2>
+<p>Replace AxlEye + DataBridge with our own pipeline so Jahna can measure axle spacing on inbound trucks, validate FDOT overweight permits, ingest FastWeigh tickets, and surface everything in the ScaleWatcher portal. Every truck in, every truck out, with the permit PDF as the audit artifact.</p>
+<h2>Repo map (4 repos)</h2>
+<table>
+<thead>
+<tr>
+<th>Repo</th>
+<th>Path</th>
+<th>Role</th>
+<th>Branch</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>nvr</strong></td>
+<td><code>~/Desktop/dev_projects/nvr/</code></td>
+<td>Spot-decoder C overlay + recorder Python event/upload pipeline + dview Java setup</td>
+<td><code>feat/scalewatcher-feature-stack</code> (off <code>tasks/86b9y6jc5</code>)</td>
+<td>20+ commits ahead of develop; tip <code>a8a6da5f4</code> ScaleWatcherDialog rename (2026-05-23). nvr also has separate non-Jahna EEN debt on <code>tasks/86b8fvth6-rebased</code> (7 commits, do not consolidate into Jahna).</td>
+</tr>
+<tr>
+<td><strong>cloudapi</strong></td>
+<td><code>~/Desktop/dev_projects/cloudapi/</code></td>
+<td>FastWeigh webhook receiver, SW_Transaction insert path, WebSocket push to NVR, future REST endpoints for portal</td>
+<td><code>tasks/86b9y6jc5</code></td>
+<td>4 commits; tip <code>b192fd3</code> sendAlertEmail hotfix (cherry-picked 2026-05-24). 346 jest tests green.</td>
+</tr>
+<tr>
+<td><strong>cv-axle-controller</strong></td>
+<td><code>~/Desktop/dev_projects/cv-axle-controller/</code></td>
+<td><strong>Reference-only</strong> (per 2026-05-19 decision). Original JS/Node browser app + Arduino USB HID controller firmware. Math + UX reference for the C port now living in spot-decoder. Hardware (PCB, enclosure, firmware) continues here.</td>
+<td><code>master</code></td>
+<td>clean</td>
+</tr>
+<tr>
+<td><strong>scalewatcher</strong> (portal)</td>
+<td><code>~/Desktop/dev_projects/scalewatcher/</code></td>
+<td>React 18 portal v2026.2.1. <strong>Not started</strong> for Jahna — zero permit/measurement/FDOT code in frontend yet</td>
+<td>n/a (current branch <code>tasks/86b9y6jc5</code> is unrelated security work)</td>
+<td>needs greenfield Phase 6</td>
+</tr>
+</tbody></table>
+<h2>How to read this hub</h2>
+<table>
+<thead>
+<tr>
+<th>If you&#39;re about to…</th>
+<th>Read first</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Resume work after time away</td>
+<td><code>cross-repo-status.md</code> then <code>open-questions.md</code></td>
+</tr>
+<tr>
+<td>Understand how the pieces fit together</td>
+<td><code>architecture.md</code></td>
+</tr>
+<tr>
+<td>Make a design decision or relitigate one</td>
+<td><code>decisions.md</code></td>
+</tr>
+<tr>
+<td>Reach out to Jahna / FastWeigh / FDOT</td>
+<td><code>open-questions.md</code> (sections 1.x are blocking; 1.2 already answered 2026-05-21)</td>
+</tr>
+<tr>
+<td>Build the webhook receiver or normalize a ticket</td>
+<td><code>fastweigh-integration.md</code></td>
+</tr>
+<tr>
+<td>Build the measurement pipeline or schema</td>
+<td><code>measurement-integration-plan.md</code></td>
+</tr>
+<tr>
+<td>Build the FDOT permit validator</td>
+<td><code>architecture.md</code> § Permit, plus <code>nvr/recorder/src/scalewatcher/permit_client.py</code></td>
+</tr>
+</tbody></table>
+<h2>Document index</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What&#39;s in it</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>README.md</code></td>
+<td>This file — project home, mission, repo map, doc index</td>
+</tr>
+<tr>
+<td><code>architecture.md</code></td>
+<td>Cross-repo design with VERIFIED/ASSUMED labels and file:line cites</td>
+</tr>
+<tr>
+<td><code>cross-repo-status.md</code></td>
+<td>Live state per repo (refresh whenever something ships or stalls)</td>
+</tr>
+<tr>
+<td><code>decisions.md</code></td>
+<td>ADRs for accumulated design choices</td>
+</tr>
+<tr>
+<td><code>open-questions.md</code></td>
+<td>Customer/vendor/integration questions, with answers as they arrive</td>
+</tr>
+<tr>
+<td><code>transaction-lifecycle-deep-dive.md</code></td>
+<td>NVR transaction model deep dive — current state with file:line cites, limitations for the paired tare+loadout model, Tier 1 minimum-viable + Tier 3 clean architectural extension paths</td>
+</tr>
+<tr>
+<td><code>fastweigh-integration.md</code></td>
+<td>The FastWeigh webhook design doc (Svix HMAC, raw pass-through, push-to-NVR)</td>
+</tr>
+<tr>
+<td><code>measurement-integration-plan.md</code></td>
+<td>The measurement schema decision (no SW_Measurement table, summary on SW_Transaction)</td>
+</tr>
+<tr>
+<td><code>open-questions.html</code></td>
+<td>Renderable HTML version of the open-items doc — same content as <code>.md</code></td>
+</tr>
+</tbody></table>
+<h2>Operating rules for cross-repo work</h2>
+<ol>
+<li><strong><code>/checkpoint</code> from cloudapi only</strong> for Jahna work. Other repos&#39; checkpoint buckets are siloed and lead to fragmentation.</li>
+<li><strong>Update <code>cross-repo-status.md</code> at every session end</strong> — that doc is the source of truth for &quot;where are we right now.&quot;</li>
+<li><strong>Label facts: <code>[VERIFIED file:line]</code> vs <code>[ASSUMED]</code>.</strong> If a claim about another repo isn&#39;t verified, mark it. Don&#39;t move it to VERIFIED without reading code in that repo.</li>
+<li><strong>Customer-facing artifacts</strong> (emails, permit PDFs, photos) → <code>cloudapi/docs/jahna-fastweigh/customer/</code> (create when needed).</li>
+<li><strong>Memory entries</strong> in any repo&#39;s user-level memory dir point HERE; they don&#39;t duplicate this content.</li>
+</ol>
+<h2>Quick links to live code</h2>
+<ul>
+<li>NVR upload entrypoint: <code>nvr/recorder/src/scalewatcher/thread_truck_transaction.py:710</code> (<code>_handleFinishedState</code>)</li>
+<li>NVR measurement fetch: <code>nvr/recorder/src/scalewatcher/measurement_client.py:30</code></li>
+<li>NVR permit fetch: <code>nvr/recorder/src/scalewatcher/permit_client.py:63</code></li>
+<li>CloudAPI webhook: <code>cloudapi/app/controllers/scalewatcher/fastweigh.js:158</code> (HMAC verify) and <code>:56</code> (push to NVR)</li>
+<li>CloudAPI transaction insert: <code>cloudapi/app/controllers/scalewatcher/transaction.js:651</code></li>
+<li>Spot-decoder measurement: <code>nvr/spot-decoder/src/measurement.c</code> (838 lines) + <code>measurement.h</code></li>
+<li>Bridge formula tests: <code>nvr/spot-decoder/tests/test_bridge_formula</code> (111/111 passing)</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>

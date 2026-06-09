@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scope of Work — Jahna Quote 17938</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a id="top"></a>
+<div class="layout">
+  <aside class="sidebar">
+<h1>Jahna · Quote 17938</h1>
+<p class="subtitle">Scope of Work + reference docs</p>
+<h2>Main</h2>
+<a href="#top" class="active">Scope of Work</a>
+<a href="quote-17938.pdf" target="_blank" class="external">Quote 17938 (PDF)</a>
+<h2>Technical reference</h2>
+<a href="docs/architecture.html" target="_blank">Architecture</a>
+<a href="docs/open-questions.html" target="_blank">Open questions</a>
+<a href="docs/decisions.html" target="_blank">Decisions (ADRs)</a>
+<a href="docs/cross-repo-status.html" target="_blank">Cross-repo status</a>
+<a href="docs/fastweigh-integration.html" target="_blank">FastWeigh integration</a>
+<h2>Deep-dive</h2>
+<a href="docs/transaction-lifecycle.html" target="_blank">Transaction lifecycle deep-dive</a>
+<a href="docs/e2e-runbook.html" target="_blank">E2E test runbook</a>
+<a href="docs/measurement-plan.html" target="_blank">Measurement integration plan</a>
+<a href="docs/paired-mode-flow.html" target="_blank">Paired-mode flow</a>
+<h2>Project history</h2>
+<a href="docs/worklog.html" target="_blank">Worklog (project hours)</a>
+<a href="docs/readme.html" target="_blank">Hub overview (README)</a>
+<h2>Meeting deck (2026-05-27)</h2>
+<a href="meeting/01-fastweigh-call-bullets.pdf" target="_blank" class="external">FastWeigh vendor call bullets</a>
+<a href="meeting/02-current-vs-future-flow.pdf" target="_blank" class="external">Current vs future flow</a>
+<a href="meeting/03-resilience-and-recovery.pdf" target="_blank" class="external">Resilience and recovery</a>
+<a href="meeting/04-flow-timeline-walkthrough.pdf" target="_blank" class="external">Flow timeline walkthrough</a>
+<div class="meta">
+Bundle generated 2026-06-09.<br>
+Author: David Smith, Dividia.<br>
+Customer: E.R. Jahna Industries.
+</div>
+</aside>
+  <main class="content">
+    
+    <h1>E.R. Jahna — FastWeigh Integration Scope of Work</h1>
+<p><strong>Quote referenced:</strong> 17938 (Chris Linkenhoger, 5/27/2026, $44,469.55)
+<strong>Customer:</strong> E.R. Jahna Industries — 202 East Stuart Ave, Lake Wales, FL 33853 (Mike Pater)
+<strong>Test site (pilot rollout):</strong> Van Fleet mine — Polk County, FL (one of Jahna&#39;s 6 sand mines)
+<strong>Prepared for:</strong> Ops manager review · <strong>Author:</strong> David Smith · <strong>Date:</strong> 2026-06-09</p>
+<hr>
+<blockquote id="open-questions-summary">
+<p><strong>Open questions before final quote — quick index.</strong> None of these block producing the budgetary numbers below; we proceed with the assumptions noted and the ranges firm up as answers arrive. Inline <code>**[OPEN Q#N]**</code> markers throughout the doc point back here.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Where in doc</th>
+<th>Why we can proceed without it</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Q1</td>
+<td>Does FastWeigh notify us when a ticket starts (webhook), or do we poll, or do we self-anchor?</td>
+<td>§ 8</td>
+<td>±20–40 hr swing on Phase 0; midpoint used for budgetary</td>
+</tr>
+<tr>
+<td>Q2</td>
+<td>Does FastWeigh re-send missed webhooks if our cloud is offline?</td>
+<td>§ 8</td>
+<td>Drives reliability-tier scope; Standard tier priced separately from Failover</td>
+</tr>
+<tr>
+<td>Q3</td>
+<td>Exact mechanism for pushing our measurement INTO FastWeigh at tare</td>
+<td>§ 2.2, § 8</td>
+<td>The integration work IS in Phase 1 budget; only the mechanism (XML drop / write-back API / etc.) is open</td>
+</tr>
+<tr>
+<td>Q4</td>
+<td>Are Jahna&#39;s permits divisible or nondivisible loads?</td>
+<td>§ 8</td>
+<td>Bridge-formula cap default works either way; correctable in Phase 1</td>
+</tr>
+<tr>
+<td>Q5</td>
+<td>Per-site camera count + which cameras need cloud upload vs local-only</td>
+<td>§ 3.1</td>
+<td>Quote 17938 has 4 cloud licenses for the pilot; adjusts per site at rollout</td>
+</tr>
+<tr>
+<td>Q6</td>
+<td>Van Fleet exact address</td>
+<td>§ 7</td>
+<td>Best guess: Sand Mine Rd, Polk City, FL 33868 — confirm with Chris L. / Mike P.</td>
+</tr>
+<tr>
+<td>Q7</td>
+<td>Scale indicator make / model</td>
+<td>§ 3.3</td>
+<td>Assumed Mettler Toledo IND780; our serial-over-Moxa path doesn&#39;t depend on make</td>
+</tr>
+<tr>
+<td>Q8</td>
+<td>Install scope — rack mount, cabling, conduit, electrical</td>
+<td>§ 3.2</td>
+<td>Quoted separately if needed; site walk after PO determines</td>
+</tr>
+<tr>
+<td>Q9</td>
+<td>Network switches, patch panels, existing UPS state</td>
+<td>§ 3.3</td>
+<td>Site walk after PO; any upgrades quoted separately</td>
+</tr>
+<tr>
+<td>Q10</td>
+<td>Lighting needed at the front-of-scale camera spot (Quote C only)</td>
+<td>§ 5.2, § 8</td>
+<td>Site walk after PO. Dividia in TX, sites in FL — can&#39;t see until on-site</td>
+</tr>
+<tr>
+<td>Q11</td>
+<td>Phase 2 training-corpus source — Phase 1 frames or label from scratch?</td>
+<td>§ 8</td>
+<td>Phase-2-only. Phase 1 generates the corpus cheaply if we plan for it.</td>
+</tr>
+<tr>
+<td>Q12</td>
+<td>Phase 2 AI confidence threshold for AI-vs-operator handoff</td>
+<td>§ 8</td>
+<td>Phase-2-only. Customer policy call.</td>
+</tr>
+<tr>
+<td>Q13</td>
+<td>Phase 3 fallback design — clean replace, or keep side-view as fallback?</td>
+<td>§ 5.2, § 8</td>
+<td>Default is clean replace; keep-fallback adds dev + hardware retention</td>
+</tr>
+<tr>
+<td>Q14</td>
+<td>Razer Stream Controller compatibility against our spot-decoder</td>
+<td>§ 3.3, § 8</td>
+<td>Acquire one for bench-test; likely plug-and-play, small dev cost if not</td>
+</tr>
+</tbody></table>
+</blockquote>
+<hr>
+<h2>1. The three quote tracks</h2>
+<p class='muted text-small'>The actual Quote 17938 PDF is embedded directly below for reference. Scope details follow.</p>
+
+<div class="embed-wrap pdf">
+  <iframe src="quote-17938.pdf" title="Quote 17938"></iframe>
+</div>
+<div class="embed-caption">Quote 17938 (Chris Linkenhoger, 2026-05-27) · <a href="quote-17938.pdf" target="_blank">Open in new tab</a> · <a href="quote-17938.pdf" download>Download</a></div>
+
+<p>Customer wants both the manual measurement product (now) AND the full AI / in-motion solution (later), with the AI-assisted intermediate as a stepping stone. So the scope is <strong>three phased deliverables, priced separately</strong> because the dev hours, hardware utilization, and customer commitments differ. Quote 17938 as currently structured is <strong>Quote A only</strong> (manual axle measurement, Phase 1). Quotes B and C are follow-ons.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Quote A — Manual measurement</th>
+<th>Quote B — AI-assisted measurement</th>
+<th>Quote C — Full AI / in-motion read</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Operator workflow</td>
+<td>Operator marks first + last axle lines on a side-view image using a USB controller. System computes bridge formula + validates permit.</td>
+<td>AI auto-detects axles in the stationary side-view feed; operator becomes a reviewer (confirm / override).</td>
+<td>Front-of-scale camera reads axles AS the truck rolls onto the scale, before it stops. Operator drops to exception-handling on the happy path.</td>
+</tr>
+<tr>
+<td>Dev hours</td>
+<td><strong>~195 hr</strong> (matches the quote line: Phase 0 discovery + Phase 1 base)</td>
+<td><strong>~150–300 hr T&amp;M</strong> (estimate; not in quote 17938)</td>
+<td><strong>~250–500 hr T&amp;M</strong> (speculative; not in quote 17938)</td>
+</tr>
+<tr>
+<td>Hardware delta vs A</td>
+<td>—</td>
+<td><strong>None.</strong> The Jetson on Phase 1 has GPU headroom for AI day one.</td>
+<td><strong>Front-of-scale camera</strong> (new install OR the existing side-view camera repositioned there), mount + cabling, possibly added lighting. Whether the side-view camera + line-placement path is retired OR kept as a fallback is an open customer-design call (see § 8). QR permit camera unchanged. Same Jetson and NVR. Per-site assessment at Phase 3 site walk.</td>
+</tr>
+<tr>
+<td>Customer-visible change</td>
+<td>Replaces AxlEye + DataBridge plugins. Workflow looks the same to the operator.</td>
+<td>Operator role becomes confirm/override.</td>
+<td>Operator role becomes exception-handling only on the happy path.</td>
+</tr>
+<tr>
+<td>Open dependency</td>
+<td>FastWeigh vendor call answers (TAC Insight — Brad Artis)</td>
+<td>Phase 1 must be live first; AI needs training corpus from Phase 1 operator-marked frames</td>
+<td>Phase 2 must be live first (velocity-tolerance work builds on the stationary-AI baseline); per-site front-of-scale camera positioning + lighting site walk</td>
+</tr>
+</tbody></table>
+<p><strong>Why bundle Phase 1 hardware to support Phase 2 from day one:</strong> the Jetson Orin Nano/NX (<code>JETENGINE-X1</code> on the quote) is selected specifically so we do NOT have to swap hardware when Phase 2 lands. It is more expensive than a CPU box would be, but it is the reason Quote B is software-only. Quote C reuses the same Jetson; the only Phase 3 hardware adds are the new front-of-scale camera + mount + any lighting work required for the in-motion read.</p>
+<hr>
+<h2>2. What Dividia provides (Quote A — Manual Measurement / Phase 1)</h2>
+<p>This is the breakdown of Quote 17938&#39;s line items, mapped to what each piece does in the solution and what it replaces in Jahna&#39;s current stack.</p>
+<h3>2.1 Hardware Dividia provides (per Van Fleet site)</h3>
+<table>
+<thead>
+<tr>
+<th>Quote line</th>
+<th>What it is</th>
+<th>What it does in the solution</th>
+<th>Replaces at Jahna</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>NVR-CLOUD</code> (1 × $999)</td>
+<td>Dividia Network Video Recorder, cloud-managed</td>
+<td>On-site box that records every camera feed, runs the recorder pipeline (transaction state machine, FastWeigh webhook receiver, FDOT permit client, cloud upload queue), holds local audit-trail copy if internet drops</td>
+<td>Nothing 1-for-1 — adds capability Jahna does not have today</td>
+</tr>
+<tr>
+<td><code>JETENGINE-X1</code> (1 × $537.24)</td>
+<td>NVIDIA Jetson Spot Decoder appliance</td>
+<td>Drives the HDMI display next to the scale operator. Renders side-view camera feed, lets operator place the two axle measurement lines via USB controller, computes the Federal Bridge Formula B + Florida 316.535 caps, exposes HTTP API the NVR reads from at transaction-finish</td>
+<td><strong>AxlEye PC</strong> (the ~$3K Windows box AxlEye runs on today)</td>
+</tr>
+<tr>
+<td><code>POS-SW-BASE</code> (1 × $4,168)</td>
+<td>ScaleWatcher Base license (per location)</td>
+<td>Cloud portal + per-location software entitlement. The portal is where Jahna sees every truck&#39;s permit PDF, measurement image, alerts, tare↔loadout pairing across all 6 sites — visibility they do not have today</td>
+<td><strong>DataBridge MS + Crystal Reports composite</strong> (the per-site Mettler Toledo ticketing system Jahna is replacing with FastWeigh anyway — but ours adds cross-site audit)</td>
+</tr>
+<tr>
+<td><code>E2210</code> (1 × $627.15)</td>
+<td>Moxa E2210 I/O controller</td>
+<td>Industrial I/O for scale-house signals (light tree, gate trigger, etc.) where needed</td>
+<td>Existing equivalent on legacy sites</td>
+</tr>
+<tr>
+<td><code>5110</code> (2 × $323.75)</td>
+<td>Moxa NPort 5110 serial-to-Ethernet converters</td>
+<td>Bring serial-only equipment (older scale indicators, legacy signaling) onto the IP network so the recorder can see it</td>
+<td>Existing equivalents on legacy sites</td>
+</tr>
+<tr>
+<td><code>UPS</code> (1 × $175.66)</td>
+<td>Battery backup</td>
+<td>Holds the NVR + Jetson through power blips long enough for graceful shutdown; Jahna&#39;s site sees lightning several times/year</td>
+<td>Site UPS to be assessed during site walk</td>
+</tr>
+<tr>
+<td><code>LIC-CAMERA-CLOUD</code> (4 × $175)</td>
+<td>Cloud camera licenses, yearly</td>
+<td>Per-camera cloud entitlement (4 cameras planned at the pilot site — see § 3.1)</td>
+<td>New capability</td>
+</tr>
+<tr>
+<td><code>POS-MAINT</code> (1 × $1,515 yearly)</td>
+<td>Yearly Dividia support</td>
+<td>Software updates, monitoring, support response</td>
+<td>New (replaces ad-hoc AxlEye + DataBridge support burden)</td>
+</tr>
+</tbody></table>
+<h3>2.2 Software Dividia delivers (DEVELOPMENT line — 195 hrs @ $180)</h3>
+<p>This is the custom software work that integrates FastWeigh with Dividia&#39;s stack and replaces what AxlEye + DataBridge currently do for Jahna. Roughly:</p>
+<ul>
+<li><strong>FastWeigh webhook integration</strong> — receive <code>ticket.created</code> from TAC Insight&#39;s Svix endpoint, HMAC-verify, route to the correct on-site NVR via WebSocket (cloudapi side, already built; needs production hardening + Svix credential negotiation with TAC Insight)</li>
+<li><strong>Measurement hand-off INTO FastWeigh at tare</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #3 — see summary at top of SOW">OPEN Q#3</a> — the customer-written HTML poller that today reads measurement XML from the scale-PC folder goes away when FastWeigh&#39;s loader app comes online (Jahna&#39;s FastWeigh migration). For the loader operator to see OUR max-weight number on the FastWeigh tablet app, our pipeline has to push the measurement into FastWeigh at tare time. The exact mechanism (XML drop into FastWeigh&#39;s intake folder, FastWeigh write-back API call, or other) is part of what we figure out with TAC Insight at integration time — this work is in our scope under Phase 1</li>
+<li><strong>Tare ↔ loadout pairing</strong> — merge the empty-truck (tare) measurement with the loaded-truck weight into one cloud audit transaction. Configurable correlation field (defaults to <code>truck_id</code>) so we can adapt to whatever FastWeigh actually emits</li>
+<li><strong>Spot Decoder C application</strong> — the bridge-formula UI on the HDMI display, USB controller input handling, calibration persistence, HTTP API the recorder calls into</li>
+<li><strong>FDOT permit validation</strong> — QR camera reads permit, recorder validates against <code>pas.fdot.gov</code> public URL, downloads the official PDF, parses permittee/expiration/axle limits/GVW. No FDOT credentials needed (public URL)</li>
+<li><strong>ScaleWatcher Cloud portal access</strong> — provides the existing ScaleWatcher Cloud product for reviewing transactions, viewing aggregate transaction PDFs, alerts, search, history, and all standard cloud-portal capabilities. Cross-site visibility across all 6 Jahna sites. The portal renders events generically (each event&#39;s <code>sData</code> parsed at render time), so the new MeasurementRecorded / Permit_Validated / Permit_ScanAttempted event types display automatically once the recorder sends them. Only delta needed was new icons + small Transaction Board legend tweaks — that frontend work already exists on the Jahna work branches.</li>
+<li><strong>Operator fallback flows</strong> — if the scale dies but cameras + Jetson + NVR are alive, transactions stay in progress with permit + measurement + photos and reconcile later (~12–20 hr line item baked in; not optional per the resilience design)</li>
+<li><strong>Site rollout + commissioning</strong> — software-side bring-up at the Van Fleet pilot, then template-replicate to the other 5 sites</li>
+</ul>
+<h3>2.3 What is INCLUDED in the per-site recurring price</h3>
+<ul>
+<li>Yearly software support (<code>POS-MAINT</code>)</li>
+<li>4 × cloud camera licenses (one per camera at the pilot site, see § 3.1)</li>
+<li>Cloud audit-trail portal access (cross-site, all transactions, alerts, history)</li>
+</ul>
+<hr>
+<h2>3. What Dividia does NOT provide (out-of-scope in Quote A)</h2>
+<p>This is the section the ops manager flagged. Listed precisely so it goes into the SOW front-and-center.</p>
+<h3>3.1 Cameras — what we know, what we don&#39;t</h3>
+<p><strong>What we know.</strong> Every site we&#39;re scoping currently runs AxlEye, which uses two Uniview cameras. Both are reused as-is on our system:</p>
+<table>
+<thead>
+<tr>
+<th>Camera</th>
+<th>Model</th>
+<th>What it&#39;s for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Side-view measurement camera</td>
+<td><strong>Uniview IPC2324SR5-ADZK-G</strong></td>
+<td>The truck side-view feed the operator marks axle lines on</td>
+</tr>
+<tr>
+<td>QR permit camera</td>
+<td><strong>Uniview IPC3635SB-ADZK-I0</strong></td>
+<td>Driver holds the FDOT permit up here; the QR code on it gets read</td>
+</tr>
+</tbody></table>
+<p><strong>What we don&#39;t know.</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #5 — see summary at top of SOW">OPEN Q#5</a> Each site likely has additional cameras (overview shots, second driver-window angle, inbound-scale view, lot cameras, etc.) that the customer may want connected to the new NVR. We don&#39;t have a per-site count yet — that&#39;s a site-walk question. Number of cameras directly drives licensing (see next paragraph), so the eventual quote per site can&#39;t be locked until we get the list.</p>
+<p><strong>Licensing — two tiers, both matter.</strong> Each camera connected to our NVR needs:</p>
+<ol>
+<li><strong>At minimum, a local NVR license</strong> so the NVR can pull and record the feed</li>
+<li><strong>In addition, a <code>LIC-CAMERA-CLOUD</code> license</strong> ONLY if the customer wants images from that camera attached to truck transactions in the cloud (e.g. an overview shot included with each transaction upload)</li>
+</ol>
+<p>So a camera the customer just wants recorded locally needs only #1. A camera they want pictures from on the cloud-side audit trail needs #1 + #2. <strong>This decision is per-camera, per-site, and has to come from the customer.</strong></p>
+<p>Quote 17938&#39;s <code>LIC-CAMERA-CLOUD × 4</code> is a conservative estimate for the pilot site assuming 4 cloud-uploading cameras. The right number depends on the answer above. Adjusts up or down per site at rollout.</p>
+<h3>3.2 Installation, mounting, cabling, power — customer (or 3rd party) provides</h3>
+<p>The quote already states &quot;Conduit work and electrical outlets provided by others.&quot; Explicitly:</p>
+<ul>
+<li><strong>Physical mounting</strong> of the new NVR + Jetson + UPS in the scale-house rack (Jahna or their electrician)</li>
+<li><strong>Power outlets</strong> at the rack location with adequate amperage</li>
+<li><strong>Conduit</strong> for any new wiring runs (cameras are already mounted at the AxlEye sites)</li>
+<li><strong>Network drops</strong> in the scale house (existing run is reused where present)</li>
+<li><strong>Camera mounting and aiming</strong> (cameras are already in place at AxlEye sites)</li>
+<li><strong>Ethernet patching</strong> between cameras, switch, NVR, Jetson</li>
+<li><strong>HDMI cable + display</strong> for the Jetson (the AxlEye monitor may be reused — to confirm on site walk)</li>
+<li><strong>Surge protection on Ethernet runs / power / scale serial</strong> beyond what&#39;s in our UPS (Jahna or their electrician — line-item add if we scope the upgrade)</li>
+<li><strong>Grounding</strong> of the scale house (existing — site-walk confirms condition)</li>
+</ul>
+<p><strong>Status of installation in Quote 17938:</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #8 — see summary at top of SOW">OPEN Q#8</a> Quote 17938 does NOT include physical installation. It covers software development, the appliances themselves, software licensing, and software-side commissioning. If physical install / rack work / cable runs / camera re-aiming is required (vs. Jahna or a 3rd party handling it themselves as they did for AxlEye), it should be quoted as a separate billable line. <strong>Site walk at Van Fleet determines what install scope is actually needed before this is sized.</strong></p>
+<h3>3.3 Scale hardware — customer keeps (REUSED)</h3>
+<table>
+<thead>
+<tr>
+<th>Equipment</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Scale indicator (Mettler Toledo IND780 or equivalent) <a class="open-marker" href="index.html#open-questions-summary" title="Open question #7 — see summary at top of SOW">OPEN Q#7</a></td>
+<td><strong>Reused.</strong> Whichever indicator is in place stays. FastWeigh reads it post-migration. We don&#39;t touch it.</td>
+</tr>
+<tr>
+<td>Scales (inbound + outbound, 1-2 of each per site) — <strong>serial output to the scale house</strong></td>
+<td><strong>Reused.</strong> The scale indicator&#39;s serial line is what the Moxa NPort 5110s on the quote (2 ×) convert to Ethernet so the recorder can see weight events over the network. (One per inbound + one per outbound on a typical 2-scale site.)</td>
+</tr>
+<tr>
+<td>Existing network switches / patch panels / cable runs <a class="open-marker" href="index.html#open-questions-summary" title="Open question #9 — see summary at top of SOW">OPEN Q#9</a></td>
+<td><strong>Unknown state — site walk required.</strong> May be reused as-is, may need upgrade or replacement. Any additional networking equipment or cabling needed beyond what&#39;s in Quote 17938 should be assessed at site walk and quoted separately if applicable.</td>
+</tr>
+<tr>
+<td>Existing UPS at scale house <a class="open-marker" href="index.html#open-questions-summary" title="Open question #9 — see summary at top of SOW">OPEN Q#9</a></td>
+<td><strong>Unknown state — site walk required.</strong> Our quoted UPS is sized for the two new appliances (NVR + Jetson). Whole-scale-house UPS upgrades or surge protection upgrades, if needed, are out of scope and a separate line.</td>
+</tr>
+<tr>
+<td><strong>Razer Stream Controller (operator input)</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #14 — see summary at top of SOW">OPEN Q#14</a></td>
+<td><strong>Reused.</strong> Jahna&#39;s operators currently use a Razer Stream Controller (USB HID — knobs + touchscreen keys + buttons) with AxlEye to move the axle-measurement lines and confirm. Same controller plugs into our Jetson and our spot-decoder reads it via <code>/dev/input/event*</code>. We will need to acquire one for development bench-testing — likely plug-and-play, but may require minor keymap / VID:PID accommodations in our code. Listed as an open verification item in § 8.</td>
+</tr>
+</tbody></table>
+<h3>3.4 FastWeigh subscription &amp; credentials — customer arranges</h3>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FastWeigh subscription tier that includes webhook + GraphQL access</td>
+<td><strong>Customer.</strong> TAC Insight will quote this to Jahna separately. We need it; we don&#39;t pay for it.</td>
+</tr>
+<tr>
+<td>Svix webhook credentials</td>
+<td><strong>Customer hands to us at provisioning time.</strong></td>
+</tr>
+<tr>
+<td>Per-site routing (NVR serial in the payload, or per-site endpoint URL)</td>
+<td><strong>TAC Insight delivers per their answer on Blocker #4 in our vendor call.</strong></td>
+</tr>
+<tr>
+<td>FastWeigh loader-tablet app on operator tablets</td>
+<td><strong>TAC Insight delivers.</strong> Replaces the customer-written HTML poller they run today. We integrate where their app surfaces our measurement data.</td>
+</tr>
+</tbody></table>
+<h3>3.5 FDOT permits — no cost or integration burden</h3>
+<p>The FDOT permit verification path uses <code>pas.fdot.gov</code> public URL. <strong>No FDOT account, no credentials, no integration fees.</strong> The driver shows the permit&#39;s QR code at the driver-window camera every truck, every time; we decode it, fetch the official PDF directly from FDOT, parse it. This is already implemented and verified against a real FDOT permit (GUID <code>ecda589c-7aaa-4c7b-9771-122133e533fd</code>).</p>
+<h3>3.6 What we are NOT replacing / supporting</h3>
+<ul>
+<li><strong>Mettler Toledo DataBridge MS ticketing system</strong> — Jahna is replacing the ticketing system itself with FastWeigh on their own project (TAC Insight timeline; not ours). <strong>Not our scope.</strong> Note: the DataBridge <strong>AxlEye plugin</strong> and <strong>file-rename plugin</strong> ARE in our scope — we replace those as part of Quote A. Only the underlying DataBridge MS ticketing application is the Jahna-side replacement.</li>
+<li><strong>Loader-tablet hardware</strong> — Jahna&#39;s existing tablets are reused. <strong>Not our scope.</strong> FastWeigh&#39;s loader app runs on those same tablets, replacing the customer-written HTML poller they run today (that replacement is Jahna&#39;s FastWeigh migration — see § 2.2 for what our integration into FastWeigh covers).</li>
+</ul>
+<hr>
+<h2>4. What Quote B (AI-assisted measurement / Phase 2) adds</h2>
+<p><strong>Not in Quote 17938.</strong> Scoped here so the customer sees the full roadmap.</p>
+<h3>4.1 What&#39;s delivered</h3>
+<ul>
+<li>AI watches the stationary side-view feed and auto-finds the first and last axle on the truck</li>
+<li>Auto-counts axles, runs the bridge formula, and fills the measurement in before the operator touches anything</li>
+<li>Operator&#39;s job shifts from &quot;place the lines&quot; to &quot;confirm the AI got it right&quot; — same controller, same display, just less work</li>
+<li>If the AI isn&#39;t sure, the operator places the lines manually exactly like Phase 1</li>
+</ul>
+<h3>4.2 Hardware delta from Quote A</h3>
+<p><strong>None.</strong> Same Jetson, same cameras, same NVR, same UPS, same controllers, same licenses. Phase 2 is software only.</p>
+<h3>4.3 Dev hours (NOT in Quote 17938)</h3>
+<p>Roughly 150–300 hours, billed time-and-materials. Firms up once Phase 1 is in pilot and we have real frames to work with.</p>
+<h3>4.4 What Quote B does NOT do</h3>
+<ul>
+<li>Does not read axles while the truck is moving — that&#39;s Quote C / Phase 3 below</li>
+<li>Does not remove the operator from the loop — they still confirm or override</li>
+<li>Does not change anything upstream (FastWeigh integration, permits, portal, etc.)</li>
+</ul>
+<hr>
+<h2>5. What Quote C (Full AI / in-motion read / Phase 3) adds</h2>
+<p><strong>Not in Quote 17938 either.</strong> This is the &quot;full AI&quot; track the customer asked about. Most ambitious of the three.</p>
+<h3>5.1 What&#39;s delivered</h3>
+<ul>
+<li>A camera at the front of the scale watches the truck approach</li>
+<li>That single camera tracks, counts, and measures axles/tires as they roll past — providing all the data the bridge formula needs, without the truck having to stop</li>
+<li>Operator does almost nothing on a good run — just confirms the truck is the right one, the permit scan worked, and the result looks sane</li>
+<li>When the system isn&#39;t confident in its read (unusual truck, weather, glare, off-axis approach), it routes to the operator as an exception. <strong>Manual line placement is NOT a fallback here</strong> — the side-view camera that Phase 1/2 used for that is gone in Phase 3. Exception-handling mechanism is a Phase 3 design item.</li>
+</ul>
+<h3>5.2 Hardware delta from Quote B</h3>
+<ul>
+<li><strong>Camera at the front of the scale</strong> — either a brand-new install OR the existing side-view measurement camera repositioned to that spot. Per-site site walk decides.</li>
+<li><strong>Mount + cabling</strong> for the front-of-scale camera position</li>
+<li><strong>Possibly added lighting</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a> at the front-of-scale spot (same TX→FL caveat as Quote C open items in § 8 — can&#39;t know until on-site after PO)</li>
+<li><strong>Side-view measurement camera</strong> <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> — what happens to it is an open customer-design call (§ 8). Default design retires it (repositioned to the front-of-scale spot or removed) and the Phase 1 / Phase 2 line-placement mechanism goes away with it. Alternative: keep it in place as a fallback for low-confidence in-motion reads (adds dev + hardware retention cost).</li>
+<li><strong>QR permit camera stays</strong> — still needed for permit reading</li>
+<li><strong>Same Jetson, same NVR</strong> — no swaps to the compute or recording stack</li>
+</ul>
+<h3>5.3 Dev hours (NOT in Quote 17938)</h3>
+<p>Roughly 250–500 hours, billed time-and-materials. Speculative until Phase 2 is live — the in-motion AI builds on the stationary-AI baseline from Phase 2, so we can&#39;t size it precisely until that foundation exists.</p>
+<h3>5.4 What Quote C does NOT do</h3>
+<ul>
+<li>Doesn&#39;t remove the operator entirely — they still own exception cases and the &quot;is this the right truck&quot; confirmation</li>
+<li>In the <strong>default design</strong>, doesn&#39;t keep manual / AI-line measurement as a fallback — the side-view-camera-with-lines path used in Phase 1 / 2 retires with it. Customer may opt to keep that path as a fallback for low-confidence reads (open call — see § 8).</li>
+<li>Doesn&#39;t replace the QR permit camera (that stays)</li>
+<li>Doesn&#39;t change anything upstream — FastWeigh integration, permits, cloud audit trail all unchanged</li>
+</ul>
+<hr>
+<h2>6. Budgetary estimates — Quote B and Quote C mockups</h2>
+<p>Line-item mockups for Quote B (Phase 2) and Quote C (Phase 3) in the same format as Quote 17938. <strong>These are budgetary estimates only, not binding quotes.</strong> Customer-side hardware / lighting / site-walk variables firm up at the point each phase is actually scoped. Dev hours assume the same $180 / hr rate Quote 17938 used.</p>
+<h3>6.1 Quote B — Phase 2 (AI-Assisted Measurement) — budgetary estimate</h3>
+<p>Software-only follow-on to Quote 17938. <strong>No hardware delta. No yearly recurring delta.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Quantity</th>
+<th>Item ID</th>
+<th>Description</th>
+<th>UOM</th>
+<th>Sell</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>—</td>
+<td>—</td>
+<td><em>Yearly recurring — no change. Licensing from Quote A continues.</em></td>
+<td>—</td>
+<td>—</td>
+<td>$0</td>
+</tr>
+<tr>
+<td>150 – 300</td>
+<td>DEVELOPMENT</td>
+<td>Phase 2 — AI-assisted stationary axle detection on the existing Jetson</td>
+<td>HR</td>
+<td>$180.00</td>
+<td><strong>$27,000 – $54,000</strong></td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Budgetary range</strong></td>
+<td><strong>$27,000 – $54,000</strong></td>
+</tr>
+<tr>
+<td><strong>Midpoint estimate</strong></td>
+<td>~225 hr × $180 = <strong>$40,500</strong></td>
+</tr>
+<tr>
+<td><strong>Billing</strong></td>
+<td>Time-and-materials, actual hours billed</td>
+</tr>
+<tr>
+<td><strong>Prerequisite</strong></td>
+<td>Quote A in pilot; training data ideally sourced from Phase 1 operator-marked frames <a class="open-marker" href="index.html#open-questions-summary" title="Open question #11 — see summary at top of SOW">OPEN Q#11</a></td>
+</tr>
+<tr>
+<td><strong>Open assumptions</strong></td>
+<td>AI confidence threshold for AI-vs-operator handoff <a class="open-marker" href="index.html#open-questions-summary" title="Open question #12 — see summary at top of SOW">OPEN Q#12</a></td>
+</tr>
+</tbody></table>
+<h3>6.2 Quote C — Phase 3 (Full AI / In-Motion Read) — budgetary estimate</h3>
+<p>Follow-on to Quote B. Adds front-of-scale camera per site (+ possibly lighting) and replaces the stationary-measurement path in the default design.</p>
+<table>
+<thead>
+<tr>
+<th>Quantity</th>
+<th>Item ID</th>
+<th>Description</th>
+<th>UOM</th>
+<th>Sell</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0 or 1</td>
+<td>LIC-CAMERA-CLOUD</td>
+<td>Cloud license for the new front-of-scale camera (only if customer wants its images on transaction uploads — can be local-only)</td>
+<td>EA</td>
+<td>$175.00 / yr</td>
+<td>$0 – $175</td>
+</tr>
+<tr>
+<td>1</td>
+<td>(camera, model TBD)</td>
+<td>Front-of-scale camera (Uniview or similar, model TBD pending velocity-tolerance spec)</td>
+<td>EA</td>
+<td>~$400 (est.)</td>
+<td>~$400</td>
+</tr>
+<tr>
+<td>1</td>
+<td>(mount + cable)</td>
+<td>Mounting hardware + cabling</td>
+<td>EA</td>
+<td>~$100 (est.)</td>
+<td>~$100</td>
+</tr>
+<tr>
+<td>0 – 1</td>
+<td>(lighting, TBD)</td>
+<td>Supplemental lighting at front-of-scale spot if site walk identifies need <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a></td>
+<td>EA</td>
+<td>~$300 – $500 (est.)</td>
+<td>$0 – $500</td>
+</tr>
+<tr>
+<td>250 – 500</td>
+<td>DEVELOPMENT</td>
+<td>Phase 3 — in-motion AI axle detection, velocity-tolerant model, exception-only operator UI</td>
+<td>HR</td>
+<td>$180.00</td>
+<td><strong>$45,000 – $90,000</strong></td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Budgetary range (per site)</strong></td>
+<td>~<strong>$45,500 – $91,000</strong></td>
+</tr>
+<tr>
+<td><strong>Midpoint estimate</strong></td>
+<td>Hardware ~$700 + Dev (~375 hr × $180 = $67,500) = ~<strong>$68,200 / site</strong></td>
+</tr>
+<tr>
+<td><strong>Billing</strong></td>
+<td>Time-and-materials on dev; hardware fixed once spec&#39;d</td>
+</tr>
+<tr>
+<td><strong>Prerequisite</strong></td>
+<td>Quote B in pilot; in-motion AI builds on Phase 2&#39;s stationary baseline</td>
+</tr>
+<tr>
+<td><strong>Open assumptions</strong></td>
+<td>Fallback design (clean replace vs keep side-view) <a class="open-marker" href="index.html#open-questions-summary" title="Open question #13 — see summary at top of SOW">OPEN Q#13</a> · Lighting need per site <a class="open-marker" href="index.html#open-questions-summary" title="Open question #10 — see summary at top of SOW">OPEN Q#10</a> · Camera model + velocity tolerance after Phase 2 baseline</td>
+</tr>
+<tr>
+<td><strong>Status</strong></td>
+<td>Speculative — numbers firm up after Quote B is in pilot</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>7. Test location — Van Fleet</h2>
+
+<div class="embed-wrap map">
+  <iframe src="https://www.google.com/maps?q=Sand+Mine+Rd,+Polk+City,+FL+33868&t=k&z=15&output=embed" title="Van Fleet site (best-guess) satellite view" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+</div>
+<div class="embed-caption">Satellite view of best-guess Van Fleet site location (Sand Mine Rd, Polk City, FL 33868). <strong>Unconfirmed</strong> — confirm with Chris Linkenhoger / Mike Pater. <a href="https://www.google.com/maps/search/?api=1&query=Sand+Mine+Rd,+Polk+City,+FL+33868" target="_blank">Open in Google Maps</a></div>
+
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Pilot site name</td>
+<td><strong>Van Fleet</strong> (internal name; Jahna&#39;s public website lists 5 mines + Savannah but does not call out &quot;Van Fleet&quot; by that label)</td>
+</tr>
+<tr>
+<td>Best-guess address <a class="open-marker" href="index.html#open-questions-summary" title="Open question #6 — see summary at top of SOW">OPEN Q#6</a></td>
+<td><strong>Sand Mine Rd, Polk City, FL 33868</strong> (Polk County) — Florida parcel records list E.R. Jahna Industries as owner. Polk City is at the southern end of the General James A. Van Fleet State Trail, matching the internal mine name. <strong>Confirm with Chris L. / Mike P. before final quote.</strong></td>
+</tr>
+<tr>
+<td>Why Van Fleet</td>
+<td>Customer designated as the pilot / first rollout site (per customer call 2026-05-21)</td>
+</tr>
+<tr>
+<td>Other Jahna sites (rollout order after Van Fleet)</td>
+<td>Green Bay (Davenport FL), Haines City, Independent North/South (Clermont), Ortona (Moore Haven), Savannah (Fleming GA), Hilochee</td>
+</tr>
+<tr>
+<td>Dividia office location</td>
+<td>Fort Worth, TX (relevant to site-walk timing — see § 8 for items we can&#39;t resolve until on-site after PO)</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>8. Open items that still affect the quotes</h2>
+<p>These are the things we don&#39;t have answers to yet. Most resolve from the FastWeigh vendor call (TAC Insight / Brad Artis) already on the books.</p>
+<h3>Affects Quote A (Phase 1):</h3>
+<table>
+<thead>
+<tr>
+<th>Open item</th>
+<th>What it changes if it goes badly</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Does FastWeigh tell us when a ticket is starting, or do we have to ask?</td>
+<td>Best case: their system fires a notification when a ticket opens — no extra work for us. Middle case: we have to poll their system every time a QR scan happens — adds 10–20 hours. Worst case: neither, and we anchor on our own scale-on signal and match up later — adds 20–40 hours.</td>
+</tr>
+<tr>
+<td>If FastWeigh&#39;s cloud or our cloud goes down for an hour, do we lose tickets?</td>
+<td>If FastWeigh re-sends missed tickets when things come back up: we&#39;re fine with monitoring + a UPS (Standard reliability tier). If they don&#39;t: we have to build a worker that goes back and grabs missed tickets — adds 30–60 hours (Failover reliability tier).</td>
+</tr>
+<tr>
+<td>How do we hand our measurement to FastWeigh so the loader operator sees it at tare?</td>
+<td>Three candidate ways: drop an XML file into FastWeigh&#39;s intake folder (same trick DataBridge uses today), call a FastWeigh write-back API, or something else they suggest. The work IS already in our Phase 1 budget — only the mechanism is open. Decided on the TAC Insight call.</td>
+</tr>
+<tr>
+<td>Are Jahna&#39;s permits divisible or nondivisible loads?</td>
+<td>Affects how the bridge-formula cap is calculated. Sand is a divisible commodity but the sample permit we saw was nondivisible. Customer answers it.</td>
+</tr>
+<tr>
+<td>AxlEye&#39;s competitive posture</td>
+<td>We previously expected AxlEye to wind down. <strong>They just got new funding so they&#39;re sticking around.</strong> Our positioning advantage: AxlEye does NOT integrate with FastWeigh, we do. This is sales narrative more than delivery schedule — doesn&#39;t change our work, but worth knowing.</td>
+</tr>
+<tr>
+<td>Razer Stream Controller compatibility</td>
+<td>Need to acquire a Razer Stream Controller for dev bench-testing (customer reuses theirs; we don&#39;t have one yet). Confirm USB HID works against our Jetson spot-decoder input layer (<code>/dev/input/event*</code>). Likely plug-and-play; if not, minor keymap accommodations in our code. Small dev cost if any.</td>
+</tr>
+</tbody></table>
+<h3>Affects Quote B (only matters once we start building Phase 2):</h3>
+<table>
+<thead>
+<tr>
+<th>Open item</th>
+<th>What it changes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Where the AI learns from</td>
+<td>Cheapest: use the frames operators marked during Phase 1 as the AI&#39;s training material. If we have to label frames from scratch instead, the dev hours go up significantly.</td>
+</tr>
+<tr>
+<td>How accurate the AI has to be before we trust it</td>
+<td>We need a number from the customer: at what confidence level does the AI get to drive the measurement vs. kick it back to the operator? Locked in before Quote B is binding.</td>
+</tr>
+</tbody></table>
+<h3>Affects Quote C (only matters once we start building Phase 3):</h3>
+<table>
+<thead>
+<tr>
+<th>Open item</th>
+<th>What it changes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Whether we need to add lighting at the front-of-scale spot</td>
+<td>Flagged as a possibility; not knowable from where we sit. Dividia is in Texas, the sites are in Florida — we can&#39;t visit until after the PO is signed. If dawn / dusk / rain / oncoming-headlight conditions at the camera spot turn out to be bad, dedicated lights aimed at the camera position may be needed (adds hardware + possibly electrical). Firms up at site walk.</td>
+</tr>
+<tr>
+<td>How fast trucks can be moving when the system reads them</td>
+<td>Depends on how the Phase 2 AI baseline turns out + how trucks approach the scale at each site (some sites have a long straight approach, some are tight).</td>
+</tr>
+<tr>
+<td>What happens when the AI on a moving truck isn&#39;t confident</td>
+<td>Open. Two reasonable answers: <strong>(a)</strong> clean replacement — no fallback, exceptions go to an operator-only handling flow (cheapest; what the § 5 default describes), or <strong>(b)</strong> keep the side-view camera + line-placement path in place as a fallback for low-confidence reads (adds dev + hardware retention cost). Customer chooses. Caveat: at least one Jahna site can&#39;t physically host the side-view camera, so option (b) isn&#39;t universally available even if offered.</td>
+</tr>
+<tr>
+<td>Does the operator basically do nothing on good runs, or stay involved as a backup</td>
+<td>Customer policy call. Changes how the UI is built and how alerts get surfaced.</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>9. Reliability tier (optional add-on, NOT in Quote 17938)</h2>
+<p>Jahna&#39;s sites get hit by lightning several times per year. Quote 17938 includes a basic UPS but does NOT include the full reliability tier work. We&#39;ve scoped this separately so the customer can decide. Two tiers exist:</p>
+<h3>Standard reliability — ~40–80 hr eng + $500–800/site hardware</h3>
+<p>Properly-sized UPS, surge protection on power + Ethernet + scale serial, heartbeat monitoring + email alerts, pre-imaged USB recovery sticks on every primary device, labeled cables + color-code, printed scale-house runbook, &quot;Something is broken&quot; workflow in dview UI.</p>
+<h3>Failover reliability — additional ~80–120 hr eng + $300–500/site hardware (above Standard)</h3>
+<p>Hot-spare Jetson + cold-spare NVR on-site pre-configured for ≤5-min plug-and-play swap by a non-technical scale operator. LTE backup uplink (Cradlepoint or similar, <del>$60/mo/site). Cloud reconciliation worker that sweeps tickets missed during outages (contingent on FastWeigh webhook-replay answer). SMS + PagerDuty alerting with 1-hour engagement SLA. On-site spare kit (</del>$1,500–2,200/site). Annual site visit for surge / grounding / UPS audit.</p>
+<p><strong>Why call this out:</strong> the resilience design exists because Jahna&#39;s lightning-strike profile is real. If the customer wants &quot;ship and forget,&quot; the Failover tier is the line item that makes that operationally possible. If they want &quot;Standard,&quot; the UPS in Quote 17938 covers a meaningful subset already.</p>
+<hr>
+<h2>10. Quick answers to the ops manager&#39;s questions</h2>
+<p><strong>Q: The devices we&#39;re providing, what they&#39;ll be used for?</strong>
+A: § 2.1 above — line-by-line.</p>
+<p><strong>Q: What exactly our system will do?</strong>
+A: § 2.2 above — software deliverables.</p>
+<p><strong>Q: What it won&#39;t do?</strong>
+A: § 3.6 above — out-of-scope items, including &quot;not replacing DataBridge — Jahna is doing that themselves.&quot;</p>
+<p><strong>Q: There&#39;s no installation on this, so they are hooking everything up?</strong>
+A: § 3.2 above — confirmed. Quote already says &quot;Conduit work and electrical outlets provided by others.&quot; Jahna installs the hardware in their rack, runs the patches, provides outlets + conduit + grounding. We deliver appliances + software and commission them remotely (or with a one-time pilot visit if needed — currently not in scope).</p>
+<p><strong>Q: No cameras on here, so need a comment that says those are being provided?</strong>
+A: § 3.1 above — the two cameras we know about (side-view measurement Uniview IPC2324SR5-ADZK-G + QR permit Uniview IPC3635SB-ADZK-I0) are reused from the existing AxlEye install at every site we&#39;re scoping. Customer may want additional existing cameras (overview, lot, second driver-window angle, etc.) connected to the new NVR — we don&#39;t have that count yet. Each extra camera needs a local NVR license; if its images go to the cloud audit trail too, it also needs a <code>LIC-CAMERA-CLOUD</code>. Per-site numbers firm up at site walk.</p>
+<p><strong>Q: What we don&#39;t have to provide a budgetary quote for?</strong>
+A: § 3 in full. The biggest items: (a) cameras (customer reuse), (b) physical install / conduit / electrical / mounting (customer or their electrician), (c) FastWeigh subscription + credentials (customer arranges with TAC Insight), (d) FDOT permit access (free public URL, no integration cost), (e) Mettler Toledo DataBridge MS replacement (Jahna&#39;s own project with TAC Insight, separate from ours).</p>
+<hr>
+<h2>11. Source-of-truth references (internal — for verifying any item)</h2>
+<ul>
+<li><strong>Architecture spec:</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/architecture.md</code> (every claim labeled VERIFIED with code cite or ASSUMED)</li>
+<li><strong>Cross-repo project status:</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/cross-repo-status.md</code> (most-recent state, updated 2026-06-08)</li>
+<li><strong>Equipment-per-phase + reliability tier definitions:</strong> <code>~/Desktop/jahna-quote-meeting-2026-05-27/02-current-vs-future-flow.pdf</code> + <code>03-resilience-and-recovery.pdf</code></li>
+<li><strong>FastWeigh vendor call agenda:</strong> <code>~/Desktop/jahna-quote-meeting-2026-05-27/01-fastweigh-call-bullets.pdf</code> (the open blockers from TAC Insight that move quote hours up or down)</li>
+<li><strong>Customer call notes (2026-05-21):</strong> memory file <code>project_jahna_email_response_20260521</code> — operational rules, replacement scope, LPR-off decision</li>
+<li><strong>Worklog (hours sunk to date):</strong> <code>~/Desktop/dev_projects/cloudapi/docs/jahna-fastweigh/worklog.md</code> (~107–130 hr sunk pre-quote per the May 27 docs; ongoing)</li>
+</ul>
+
+
+  </main>
+</div>
+</body>
+</html>
