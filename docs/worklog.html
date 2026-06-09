@@ -47,7 +47,7 @@ Customer: E.R. Jahna Industries.
 <p>Append a daily summary at the end of each working session. Rough hours, not stopwatch-precise. Goal: have a defensible answer to &quot;how much time has this project consumed?&quot; when it&#39;s time to quote.</p>
 </blockquote>
 <hr>
-<h2>2026-06-09 — SOW for Quote 17938 compiled + cross-doc IP-scales correction sweep</h2>
+<h2 id="section-2026">2026-06-09 — SOW for Quote 17938 compiled + cross-doc IP-scales correction sweep</h2>
 <p>Approx <strong>~2 hr</strong> of session work. Ops manager (Chris L., via David) asked for a scope-of-work that answers: what hardware Dividia provides, what each piece is for, what we will/won&#39;t do, who handles install, what cameras Jahna provides vs. us, what we&#39;re NOT replacing, and the broader two-quote framing (manual measurement Phase 1 = Quote 17938 / AI measurement Phase 2 = follow-on). PDF reference: <code>~/Desktop/quote-17938.pdf</code> ($44,469.55, 195 dev hr @ $180, Mike Pater / Chris L. / 2026-05-27).</p>
 <p><strong>Deliverable:</strong> <code>~/Desktop/jahna-quote-17938-scope-of-work.md</code> — single ops-readable scope doc, NOT structured like a quote, structured to answer Chris&#39;s questions one by one (§ 8 of the doc is the literal Q&amp;A back to the ops-manager email).</p>
 <p><strong>Iterative corrections from David during review (in order):</strong></p>
@@ -90,7 +90,7 @@ Customer: E.R. Jahna Industries.
 <li><strong>Worklog hours tally for the quote</strong> — total sunk hours estimate not refreshed this session; prior tally was ~107–130 hr per the 03-resilience-and-recovery doc; today adds ~2 hr.</li>
 </ol>
 <hr>
-<h2>2026-06-08 — Jahna EXTRACTION phase 2 (dview Java) shipped + all 3 halves merged to develop in both repos</h2>
+<h2 id="section-2026">2026-06-08 — Jahna EXTRACTION phase 2 (dview Java) shipped + all 3 halves merged to develop in both repos</h2>
 <p>Approx <strong>~2 hr</strong> of session resume + dview Java extraction + merge work, on top of the prior session&#39;s cloudapi + nvr-recorder halves. <strong>Important framing:</strong> this is the EXTRACTION/REMOVAL phase, not the Jahna feature delivery. Feature implementation remains parked on the Jahna branch (<code>task/86b9y6jc5-jahna-fastweigh-addons</code>) until customer green-light.</p>
 <ul>
 <li>~15 min — Session resume from checkpoint <code>20260608-141136-jahna-extraction-phase1-dview-next.md</code>. Verified cloudapi <code>tasks/86babgu9m @ 4c9f862</code> and nvr <code>tasks/86babk11u-nvr @ 54533e35e</code> clean against checkpoint. Caught + verified ant + JDK availability on this machine (ant 1.10.15, javac 23.0.1).</li>
@@ -132,7 +132,7 @@ Customer: E.R. Jahna Industries.
 </ol>
 <p>Checkpoint: see <code>~/.gstack/projects/repos-cloud-api/checkpoints/</code> for today&#39;s session.</p>
 <hr>
-<h2>2026-06-05 (afternoon) — nvr Step 2 SHIPPED to develop + ENS class-name fix committed (pending review)</h2>
+<h2 id="section-2026">2026-06-05 (afternoon) — nvr Step 2 SHIPPED to develop + ENS class-name fix committed (pending review)</h2>
 <p>Approx <strong>~3-4 hr</strong> of session resume + ship work, on top of the morning&#39;s branch-cleanup + cherry-pick work logged below.</p>
 <ul>
 <li>~1 hr — Session resume / verification: prior session paused mid-network-swap on 0.144 with rda-backend tests pending; this session verified network swap held (static .144, Wi-Fi off, .67 dead), 3-way SHA match on spot-checked files local↔0.144↔0.141, and re-ran the three Python suites on 0.141 (rda-db, recorder, rda-backend) PLUS local ant compile + dview JUnit. Reported &quot;3051/3051 PASS&quot; — but see &quot;Mistakes&quot; below; the 0.141 inventory was actually stale and the report was overconfident.</li>
@@ -164,7 +164,7 @@ Customer: E.R. Jahna Industries.
 </ol>
 <p>Checkpoint: <code>~/.gstack/projects/repos-nvr/checkpoints/20260605-110000-step2-shipped-ens-fix-pending-review.md</code>. Session-status mirror: <code>~/Desktop/dev_projects/nvr/.claude/SESSION_STATUS.md</code>.</p>
 <hr>
-<h2>2026-06-05 — Branch cleanup sweep + nvr Step 2 begun (paused at 21/29)</h2>
+<h2 id="section-2026">2026-06-05 — Branch cleanup sweep + nvr Step 2 begun (paused at 21/29)</h2>
 <p>Approx <strong>~3-4 hr</strong> of focused branch-cleanup work since Day 1 wrapped.</p>
 <ul>
 <li>~1 hr — Branch cleanup sweep across 4 repos (nvr + cloudapi + scalewatcher + MacView):<ul>
@@ -199,7 +199,7 @@ Customer: E.R. Jahna Industries.
 <li>Vanessa&#39;s 3 Q/A REVIEW task pairs (<code>86ba017k1</code>, <code>86b9tee5h</code>, <code>86b948pxy</code>) pending code review + testing — David&#39;s decision to wait until his Step 2 work lands</li>
 </ul>
 <hr>
-<h2>2026-06-04 — Spot-decoder libudev hotplug shipped + full 3-repo branching strategy locked</h2>
+<h2 id="section-2026">2026-06-04 — Spot-decoder libudev hotplug shipped + full 3-repo branching strategy locked</h2>
 <p>Approx <strong>~6-7 hr</strong>.</p>
 <ul>
 <li>Hotplug feature (≈ 2.5 hr): libudev integration replacing once-at-startup <code>/dev/input/event*</code> scan in <code>spot-decoder/src/input.c</code>. Multi-keyboard FD array (<code>fdkb[8]</code>) because a single Logitech USB keyboard registers as 3 event devices (Keyboard + Consumer Control + System Control); legacy single-FD silently dropped the siblings. Hotplug spike validated live add/remove events on .69 testbed with real plug/unplug. 31 unit tests for <code>_kbd_name_matches</code> covering accept/deny/edge cases — pass on macOS + Ubuntu. Full <code>make</code> on .69 with <code>-ludev</code> linked clean. Two commits on <code>feat/spot-decoder-input-hotplug</code> (<code>596681725</code> feat + <code>c2602ae0b</code> test), pushed to origin, PR pending manual creation in AWS Console.</li>
@@ -220,7 +220,7 @@ Customer: E.R. Jahna Industries.
 <li><code>claude</code> AWS profile not configured on this machine → all PRs manual until set up</li>
 </ol>
 <hr>
-<h2>2026-06-03 (full day) — Comprehensive E2E matrix EXECUTED: 12 scenarios across paired/standalone × Apex/FW × meas/perm/cloud × happy/orphan/alert paths. 4 bugs found + fixed.</h2>
+<h2 id="section-2026">2026-06-03 (full day) — Comprehensive E2E matrix EXECUTED: 12 scenarios across paired/standalone × Apex/FW × meas/perm/cloud × happy/orphan/alert paths. 4 bugs found + fixed.</h2>
 <p>Approx <strong>~10 hr</strong>.</p>
 <h3>Final scenario matrix — all RDS rows verified</h3>
 <table>
@@ -678,7 +678,7 @@ portal — DB data is verified to exist for all 9 transactions)</li>
 (both spot-decoder operator-controller plumbing).  Mustang has Cybrix 16
 hardware in hand.</p>
 <hr>
-<h2>2026-06-02 (overnight cont&#39;d) — 2x cloud upload bug FIXED + branches pushed + portal visual verified</h2>
+<h2 id="section-2026">2026-06-02 (overnight cont&#39;d) — 2x cloud upload bug FIXED + branches pushed + portal visual verified</h2>
 <p>Approx <strong>~1.5 hr</strong> more after the toggle-fix verification.</p>
 <p>User authorized branch pushes + asked me to identify+fix <code>bug_recorder_2x_cloud_upload</code> + attempt Bucket H visual.</p>
 <h3>2x upload bug — root cause + fix + live verify</h3>
@@ -728,7 +728,7 @@ hardware in hand.</p>
 <li>VM4001: Misc paired-tare-loadout=&#39;on&#39; (matches original OR-merged state); recorder/rda-backend/mpengine active; POSes 10+11 unchanged; the 2x-fix and TicketReceivedTare rename are live and serving traffic correctly</li>
 </ul>
 <hr>
-<h2>2026-06-02 (overnight) — VM4001 FULL END-TO-END VERIFIED + bool(&#39;off&#39;)==True bug caught and fixed</h2>
+<h2 id="section-2026">2026-06-02 (overnight) — VM4001 FULL END-TO-END VERIFIED + bool(&#39;off&#39;)==True bug caught and fixed</h2>
 <p>Approx <strong>~1 hr</strong> more after the worklog was written.</p>
 <p>Mustang called out that I shouldn&#39;t have been tunneling — my Mac is on 192.168.0.53, same /24 as VM4001 (0.141).  Direct connection works.  0.144 (build host) is genuinely down (no ping from local OR from VM4001), but I don&#39;t need it: vboxsf mount <code>/rda/devel/nvr</code> is host-to-guest (VirtualBox) so files I write into VM4001 via SSH+rsync go straight to 0.144&#39;s tree.</p>
 <h3>Full live end-to-end deployment + test</h3>
@@ -817,7 +817,7 @@ hardware in hand.</p>
 </tr>
 </tbody></table>
 <hr>
-<h2>2026-06-02 (very late evening) — TicketReceivedTare SHIPPED + LIVE END-TO-END VERIFIED on staging RDS; scalewatcher portal rendering also shipped</h2>
+<h2 id="section-2026">2026-06-02 (very late evening) — TicketReceivedTare SHIPPED + LIVE END-TO-END VERIFIED on staging RDS; scalewatcher portal rendering also shipped</h2>
 <p>Approx <strong>~1.5 hr</strong> continuation after the globalize-paired-toggle commit.</p>
 <h3>TicketReceivedTare event type — recorder + cloudapi + portal SHIPPED</h3>
 <p>Bundled per the design memory <code>project_ticket_received_tare_design</code>. Three repos, three commits:</p>
@@ -934,7 +934,7 @@ hardware in hand.</p>
 <li><strong>Bucket H portal display</strong> — pending until staging has fresh paired-mode transactions (we&#39;ve now confirmed 4977714 exists and renders correctly via cloudapi response; still needs visual verification in the live portal at api-staging.cloud.dividia.net).</li>
 </ul>
 <hr>
-<h2>2026-06-02 (late evening) — globalize-paired-toggle SHIPPED (committed, not yet pushed) — 4-layer bundle, 2509+ tests green, live MariaDB migration verified</h2>
+<h2 id="section-2026">2026-06-02 (late evening) — globalize-paired-toggle SHIPPED (committed, not yet pushed) — 4-layer bundle, 2509+ tests green, live MariaDB migration verified</h2>
 <p>Approx <strong>~2.5 hr</strong> of focused implementation work after Bucket F completion + design plans earlier today.</p>
 <h3>What landed (commit <code>336dadc28</code> on <code>task/86b9y6jc5-jahna-fastweigh-addons</code>)</h3>
 <p>The full globalize-paired-toggle plan implemented layer-by-layer as one bundled commit (per the plan&#39;s risk section — version-skew protection). Branch now 3 commits ahead of origin, NOT pushed.</p>

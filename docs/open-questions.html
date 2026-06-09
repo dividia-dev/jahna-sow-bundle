@@ -89,9 +89,9 @@ Customer: E.R. Jahna Industries.
 <li><del>§3.2 Recorder hardening — uniform base64 image format across all upload paths.</del> <strong>RESOLVED 2026-05-25</strong> via <code>nvr</code> commit <code>968900477</code>. New helper <code>scalewatcher/img_util.b64_str_encode(data)</code> is now used at all 10 b64encode call-sites in <code>recorder/src/scalewatcher/</code> (the 2 previously inline-guarded sites plus the 8 unfixed ones). Json-dumpable-under-Py3 test in <code>recorder/tests/test_img_util.py</code>.</li>
 </ul>
 <hr>
-<h2>1. Questions for Jahna (Customer Call / Email)</h2>
+<h2 id="section-1">1. Questions for Jahna (Customer Call / Email)</h2>
 <p>These are questions only the customer can answer. Priority-ordered.</p>
-<h3>1.0 Loader Tablets — What Are They? (BLOCKING — ARCHITECTURE)</h3>
+<h3 id="section-1-0">1.0 Loader Tablets — What Are They? (BLOCKING — ARCHITECTURE)</h3>
 <p>The customer&#39;s transaction flow reveals that after inbound measurement, a &quot;loader tablet&quot;
 displays the truck&#39;s max weight so the loader operator knows how much to load. This is
 critical to our architecture because we are replacing the system that feeds these tablets.</p>
@@ -111,7 +111,7 @@ we need a push mechanism or if writing to a shared location is sufficient.)</li>
 target and the core value prop of inbound measurement is broken. This determines whether
 we need a FastWeigh write-back API, a DataBridge-compatible shared folder drop, or our
 own tablet display solution.</p>
-<h3>1.0a QR Permit Reader — Mobile App vs Mounted Camera</h3>
+<h3 id="section-1">1.0a QR Permit Reader — Mobile App vs Mounted Camera</h3>
 <p>The existing AxlEye setup uses a dedicated Uniview IPC3635SB-ADZK-I0 camera mounted at
 the scale house window for drivers to hold up their permit. This is separate from the
 measurement camera (IPC2324SR5-ADZK-G).</p>
@@ -230,7 +230,7 @@ camera is just a stream source. Worth a 10-minute check on the actual web UI of 
 of the deployed cams to confirm, but planning around &quot;we own the decode&quot; is the safe
 assumption.</li>
 </ul>
-<h3>1.0c Measurement Automation Roadmap — long-tail vision</h3>
+<h3 id="section-1">1.0c Measurement Automation Roadmap — long-tail vision</h3>
 <p>Captured 2026-05-25 during the §1.0b decision call. The print-time fallback
 (§1.0b, shipped this branch) is <strong>the safety net</strong>, not the destination.
 Beyond it lies a roadmap toward full automation of the side-view measurement:</p>
@@ -265,7 +265,7 @@ requirement, no operator interaction at all.</p>
 through every later phase. Even after Phase 5, a sensor failure or
 unusual truck geometry might leave the AI without a measurement —
 the fallback catches those.</p>
-<h3>1.0b Measurement Fallback — Snapshot + Best-Effort On Save Miss</h3>
+<h3 id="section-1">1.0b Measurement Fallback — Snapshot + Best-Effort On Save Miss</h3>
 <p>Today&#39;s measurement flow on the NVR side (verified
 <code>nvr/recorder/src/scalewatcher/measurement_client.py</code> + <code>thread_truck_transaction.py:765-775</code>):</p>
 <ul>
@@ -344,7 +344,7 @@ real <code>Measurement_Recorded</code> / <code>Qr_Read</code> events didn&#39;t 
 <ul>
 <li>2 new tests in <code>test_qr_reader.py</code> for <code>getLastFrame()</code>. Full suites green (110 + 17).</li>
 </ul>
-<h3>1.1 FastWeigh Webhook Access (BLOCKING)</h3>
+<h3 id="section-1-1">1.1 FastWeigh Webhook Access (BLOCKING)</h3>
 <p>We need access to a working FastWeigh webhook endpoint for Jahna&#39;s site so we can
 see actual payload data. Without this, we&#39;re guessing at field names and ticket structure.</p>
 <ul>
@@ -357,7 +357,7 @@ see actual payload data. Without this, we&#39;re guessing at field names and tic
 <li><input disabled="" type="checkbox"> <strong>Which FastWeigh site/plant should we start with?</strong> (Green Bay Mine, Haines City, etc.)</li>
 <li><input disabled="" type="checkbox"> <strong>What is Jahna&#39;s FastWeigh subscription tier?</strong> (some features like GraphQL API are premium add-ons)</li>
 </ul>
-<h3>1.2 Overweight Permits — Current Process (ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-2">1.2 Overweight Permits — Current Process (ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>How are permits received today?</strong> Driver holds up OW permit to a dedicated QR camera
 (Uniview IPC3635SB-ADZK-I0) at inbound. Every time, no exceptions.</li>
@@ -393,7 +393,7 @@ different between divisible and nondivisible permits.</li>
 </ul>
 </li>
 </ul>
-<h3>1.3 Axle Measurement — Current Process (PARTIALLY ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-3">1.3 Axle Measurement — Current Process (PARTIALLY ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>Is axle measurement done on TARE (inbound) only, or also on LOADED (outbound)?</strong> <strong>INBOUND ONLY.</strong> Confirmed by customer 2026-05-21. No re-measurement on outbound. (Code-level enforcement on NVR side is a TODO — see resolution log.)</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>Who operates the AxlEye tool today?</strong> <strong>Scale operator</strong> (not a dedicated person). Per customer call.</li>
@@ -408,7 +408,7 @@ different between divisible and nondivisible permits.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>Is the AxlEye camera the same as or separate from the scale documentation camera?</strong> <strong>SEPARATE.</strong> AxlEye uses IPC2324SR5-ADZK-G for measurement; a different Uniview IPC3635SB-ADZK-I0 is mounted at the driver window for the QR-permit reader.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>Does AxlEye count axles, or does the operator enter the axle count manually?</strong> <strong>Manual axle count entry</strong> by operator (matches our cv-axle-controller POC and the spot-decoder C implementation). AxlEye marketing implies camera-based detection but the actual product is manual.</li>
 </ul>
-<h3>1.4 DataBridge — What It Does (LARGELY ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-4">1.4 DataBridge — What It Does (LARGELY ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>What exactly does DataBridge do?</strong> <strong>ANSWERED:</strong> Per customer, <em>&quot;the only other function beyond AxlEye is a plugin that renames jpg+xml with ticket# and timestamp.&quot;</em> That&#39;s it. No other plugins/integrations to worry about. <strong>This is a quote-significant finding — Tier 2 scope shrinks accordingly.</strong> Captured in <code>architecture.md</code> § 0a.</li>
 <li><input disabled="" type="checkbox"> <strong>Does DataBridge interact with FastWeigh?</strong> Partial: it consumes the FastWeigh ticket# to do the file rename, but no other DataBridge↔FastWeigh API integration disclosed. Open to verify.</li>
@@ -416,7 +416,7 @@ different between divisible and nondivisible permits.</li>
 <li><input disabled="" type="checkbox"> <strong>Does Jahna want to keep DataBridge running alongside our solution?</strong> Open — depends on Tier 1/2/3 scope decision. If Tier 2 or 3, we replace it.</li>
 <li><input disabled="" type="checkbox"> <strong>Is the &quot;scale PC&quot; running DataBridge the same machine running FastWeigh?</strong> Open.</li>
 </ul>
-<h3>1.5 Transaction Flow &amp; Identification (PARTIALLY ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-5">1.5 Transaction Flow &amp; Identification (PARTIALLY ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>How are trucks identified at Jahna today?</strong> <strong>NOT LPR</strong> (customer says LPR is &quot;not stable&quot; — off the table). Operator-driven: the operator selects hauler/truck/customer/contract in DataBridge during the tare-scale sequence. The QR permit decodes to a per-permittee URL but doesn&#39;t bind to a specific truck. <strong>The primary cross-scale truck identifier remains an open FastWeigh question</strong> (truck_id field name and reliability — see §2.3).</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>What does a FULL truck transaction look like at one of their sites?</strong> <strong>ANSWERED in detail.</strong> Captured in <code>architecture.md</code> § 0c &quot;The customer&#39;s real operational flow&quot;:<ol>
@@ -435,14 +435,14 @@ different between divisible and nondivisible permits.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>What does the outbound (loaded) ticket process look like?</strong> Above (step 8 of the flow). <strong>No outbound AxlEye measurement</strong> — measurement is inbound only.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>What scale hardware is at the site?</strong> <strong>Serial-output scale indicators</strong> (Mettler Toledo IND780 assumed but not 100% confirmed) brought onto IP via Moxa NPort 5110 serial-to-Ethernet converters. Quote 17938 line items 2 × NPort 5110 are for exactly this (1 inbound + 1 outbound on a typical 2-scale site). Sites vary: 1-2 inbound + 1-2 outbound scales per site. <strong>[CORRECTED 2026-06-09 — David]</strong> prior &quot;IP-based scales, no Moxa needed&quot; was wrong.</li>
 </ul>
-<h3>1.6 Final Composite / Accounting (PARTIALLY ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-6">1.6 Final Composite / Accounting (PARTIALLY ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>The composite image (permit + measurement + weights) — who generates it today?</strong> Composed on inbound, completed on outbound. Today the assembly is done by AxlEye + DataBridge file aggregation. We&#39;ll replace this with a cloud-side composite per Phase 6 portal work.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>What is the final deliverable for each truck transaction?</strong> <strong>Printed PDF from scale house</strong> (no images on the printed copy). Some customers also receive emailed ticket. FastWeigh handles ticket printing/email; our composite (permit + measurement + scale weights + images) is currently a separate artifact, future portal display.</li>
 <li><input checked="" disabled="" type="checkbox"> <strong>Is the FastWeigh ticket part of the composite, or separate?</strong> <strong>SEPARATE.</strong> FastWeigh handles its own ticket display/printing; our composite is for the audit/permit/measurement trail.</li>
 <li><input disabled="" type="checkbox"> <strong>Do they need historical lookups?</strong> Likely yes (ops want to find prior transactions for disputes / DOT audits / customer questions). FastWeigh&#39;s portal may cover ticket history; ScaleWatcher Cloud would cover measurement/permit/image history. Confirm scope with customer.</li>
 </ul>
-<h3>1.7 Deployment &amp; Infrastructure (PARTIALLY ANSWERED 2026-05-21)</h3>
+<h3 id="section-1-7">1.7 Deployment &amp; Infrastructure (PARTIALLY ANSWERED 2026-05-21)</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>How many scales per site?</strong> <strong>Varies, typically 1-2 inbound + 1-2 outbound scales per site.</strong> Per customer call. Hilochee is single-scale and lower-volume (trucks tare weekly/monthly only). Savannah has unique geometry (camera in swamp) and never got AxlEye installed.</li>
 <li><input disabled="" type="checkbox"> <strong>Is there internet connectivity at the scale house?</strong> Assumed yes (they already run cloud FastWeigh); confirm quality at the pilot site.</li>
@@ -451,9 +451,9 @@ different between divisible and nondivisible permits.</li>
 <li><input disabled="" type="checkbox"> <strong>Who is our day-to-day contact at Jahna for technical questions?</strong> Open.</li>
 </ul>
 <hr>
-<h2>2. Questions for FastWeigh / TAC Insight</h2>
+<h2 id="section-2">2. Questions for FastWeigh / TAC Insight</h2>
 <p>Contact: <a href="mailto:support@tacinsight.com">support@tacinsight.com</a> / 865-219-2980</p>
-<h3>2.1 Webhook Technical Details (BLOCKING)</h3>
+<h3 id="section-2-1">2.1 Webhook Technical Details (BLOCKING)</h3>
 <ul>
 <li><input disabled="" type="checkbox"> <strong>Can custom UDFs (User Defined Fields) be included in webhook payloads?</strong><ul>
 <li>We need to route webhooks to the correct NVR. We want to include NVR serial number
@@ -474,7 +474,7 @@ and port number as custom fields on the ticket/webhook.</li>
 </ul>
 </li>
 </ul>
-<h3>2.2 Scale Events</h3>
+<h3 id="section-2-2">2.2 Scale Events</h3>
 <ul>
 <li><input disabled="" type="checkbox"> <strong>Does FastWeigh fire webhooks for scale events</strong> (truck entering, truck on scale, truck leaving)?<ul>
 <li>Or only for completed tickets?</li>
@@ -486,7 +486,7 @@ and port number as custom fields on the ticket/webhook.</li>
 </ul>
 </li>
 </ul>
-<h3>2.3 Truck &amp; Carrier Data</h3>
+<h3 id="section-2-3">2.3 Truck &amp; Carrier Data</h3>
 <ul>
 <li><input disabled="" type="checkbox"> <strong>What fields identify a truck in the webhook?</strong> (truck_id, license_1, fleet_id?)<ul>
 <li>Which of these is reliably populated for Jahna&#39;s setup?</li>
@@ -499,8 +499,8 @@ and port number as custom fields on the ticket/webhook.</li>
 <li><input disabled="" type="checkbox"> <strong>Is GraphQL API access included in Jahna&#39;s subscription, or is it a premium add-on?</strong></li>
 </ul>
 <hr>
-<h2>3. FDOT Permit Registry / Validation</h2>
-<h3>3.1 Permit Verification — SOLVED (2026-05-21)</h3>
+<h2 id="section-3">3. FDOT Permit Registry / Validation</h2>
+<h3 id="section-3-1">3.1 Permit Verification — SOLVED (2026-05-21)</h3>
 <p><del>Research confirms: there is NO public permit lookup system.</del> <strong>WRONG.</strong> The QR code
 on every FDOT overweight permit IS a direct URL to a public PAS page:</p>
 <pre><code>https://pas.fdot.gov/Public/ViewPermit/{uuid}
@@ -529,7 +529,7 @@ downloads PDF, parses fields via FlateDecode decompression, validates status/exp
 <li>Dimensions: 13&#39;6&quot; H x 80&#39;0&quot; L x 8&#39;6&quot; W</li>
 <li>GVW: &quot;See attached table&quot; (blanket permits have per-axle-config weight tables)</li>
 </ul>
-<h3>3.2 Permit Data Model — Partially Answered</h3>
+<h3 id="section-3-2">3.2 Permit Data Model — Partially Answered</h3>
 <ul>
 <li><input checked="" disabled="" type="checkbox"> <strong>GVW on blanket permits = &quot;See attached table&quot;</strong> — weight varies by axle config.
 The per-axle limits (SINGLE/TANDEM/TRIDEM/QUAD) are parsed from the PDF and stored
@@ -544,22 +544,22 @@ also see SINGLE TRIP permits (which would have a fixed GVW number).</li>
 <li><input disabled="" type="checkbox"> <strong>How often do permits change?</strong> (sample permit is annual: 01/2026 - 01/2027)</li>
 </ul>
 <hr>
-<h2>4. Internal Architecture Decisions (Dividia Team)</h2>
+<h2 id="section-4">4. Internal Architecture Decisions (Dividia Team)</h2>
 <p>These are decisions WE need to make. Not dependent on external answers, but informed by them.</p>
-<h3>4.1 Axle Measurement: Spot Decoder vs Browser-Only — DECIDED 2026-05-19</h3>
+<h3 id="section-4-1">4.1 Axle Measurement: Spot Decoder vs Browser-Only — DECIDED 2026-05-19</h3>
 <blockquote>
 <p><strong>DECIDED — Option A (Spot Decoder C).</strong> See ADR-003 in <code>decisions.md</code>. Browser approach (Option B) was rejected because focus issues are unreliable in a multi-window scale-house environment. The hybrid (Option C) was over-engineered.</p>
 <p><strong>Built:</strong> <code>nvr/spot-decoder/src/measurement.c</code> (838 lines, 111/111 bridge formula tests passing). Operator measures on a dedicated HDMI display + USB HID controller. Browser portal will display the measurement <em>result</em> (Phase 6) but does not host the live measurement UI. The original &quot;Option A/B/C&quot; decision matrix below is preserved for context but the decision is final.</p>
 </blockquote>
-<h3>4.2 Where Does Permit Data Live? — DECIDED differently</h3>
+<h3 id="section-4-2">4.2 Where Does Permit Data Live? — DECIDED differently</h3>
 <blockquote>
 <p><strong>DECIDED — neither of the original options.</strong> See ADR-006 in <code>decisions.md</code>. We don&#39;t store permits as a separate entity at all. Permits are fetched live from FDOT (public URL, ADR-007), parsed at the NVR via <code>permit_client.py</code>, and ride into the cloud as <code>Permit_Validated</code> events in <code>SW_Event</code> + the PDF as a transaction image. No permit DB, no sync, no upload mechanism. The original &quot;cloud-primary with NVR cache&quot; recommendation below is obsolete — no permit storage to cache, the permit is always re-fetched from the QR code on each truck.</p>
 </blockquote>
-<h3>4.3 Webhook Routing: Cloud vs Direct-to-NVR — DECIDED</h3>
+<h3 id="section-4-3">4.3 Webhook Routing: Cloud vs Direct-to-NVR — DECIDED</h3>
 <blockquote>
 <p><strong>DECIDED — cloud route.</strong> Already built and live in cloudapi commit <code>6a17642</code>. Direct-to-NVR was rejected (would require public endpoint or VPN on every NVR; doesn&#39;t scale). Note: the &quot;permit validation in the cloud before pushing to NVR&quot; framing in the original recommendation is moot — permit validation happens on the NVR side now (ADR-006/007), not in the cloud. Routing path is unchanged.</p>
 </blockquote>
-<h3>4.4 Transaction Linking Strategy</h3>
+<h3 id="section-4-4">4.4 Transaction Linking Strategy</h3>
 <p>How do we connect: tare ticket + loaded ticket + axle measurement + permit?</p>
 <p>Options:</p>
 <ul>
@@ -573,8 +573,8 @@ entering/leaving and create our own transaction timeline independent of FastWeig
 </ul>
 <p><strong>DECISION NEEDED</strong> after we see actual FastWeigh webhook payloads.</p>
 <hr>
-<h2>5. Research Findings Summary (for reference)</h2>
-<h3>5.1 Florida Permit Weight Logic</h3>
+<h2 id="section-5">5. Research Findings Summary (for reference)</h2>
+<h3 id="section-5-1">5.1 Florida Permit Weight Logic</h3>
 <p><strong>Without permit:</strong></p>
 <ul>
 <li>Max weight = bridge formula result (W = 500((LN/(N-1)) + 12N + 36))</li>
@@ -597,13 +597,13 @@ entering/leaving and create our own transaction timeline independent of FastWeig
 <li>Non-interstate only</li>
 <li>Does NOT apply to single-unit dump trucks (they stay at 70K cap)</li>
 </ul>
-<h3>5.2 Bridge Formula Implementation Status</h3>
+<h3 id="section-5-2">5.2 Bridge Formula Implementation Status</h3>
 <ul>
 <li>cv-axle-controller implementation is CORRECT (verified against F.S. 316.535)</li>
 <li>All 60 tests pass</li>
 <li>Missing: per-axle-group limits, permit override logic (planned for v2)</li>
 </ul>
-<h3>5.3 AxlEye XML Output Format</h3>
+<h3 id="section-5-3">5.3 AxlEye XML Output Format</h3>
 <pre><code class="language-xml">&lt;Measurement&gt;
     &lt;Data&gt;
         &lt;TransactionGuid&gt;e6575818-d43b-4bf9-ace3-1048ef28c068&lt;/TransactionGuid&gt;
@@ -618,7 +618,7 @@ entering/leaving and create our own transaction timeline independent of FastWeig
 <li>20260507 — date (2026-05-07)</li>
 <li>04A0227 — unknown (time? sequence?)</li>
 </ul>
-<h3>5.4 Spot Decoder Capabilities</h3>
+<h3 id="section-5-4">5.4 Spot Decoder Capabilities</h3>
 <ul>
 <li>C application, framebuffer-based video display</li>
 <li>HTTP API on port 88: overlay boxes, labels, screenshots, input injection</li>
@@ -627,7 +627,7 @@ entering/leaving and create our own transaction timeline independent of FastWeig
 <li>No existing measurement capability, but graphics pipeline is ready</li>
 </ul>
 <hr>
-<h2>6. Call Agenda (Suggested)</h2>
+<h2 id="section-6">6. Call Agenda (Suggested)</h2>
 <p>When scheduling the call with Jahna, cover in this order:</p>
 <ol>
 <li><strong>FastWeigh webhook access</strong> — get this unblocked first, everything depends on seeing real data</li>

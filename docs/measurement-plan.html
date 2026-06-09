@@ -315,7 +315,7 @@ Customer: E.R. Jahna Industries.
 </tbody></table>
 <h2>Spot Decoder: Hotplug + Multi-Device Input (TODO)</h2>
 <p>The spot-decoder (<code>spot-decoder/src/input.c</code>) currently scans <code>/dev/input/event0..31</code> once at startup in <code>input_init()</code>, opening a single FD per device type (keyboard, IR, joystick). Two problems:</p>
-<h3>1. No hotplug support</h3>
+<h3 id="section-1">1. No hotplug support</h3>
 <p>Devices plugged in after boot are never discovered. Unplug handling works (failed <code>read()</code> closes the FD), but nothing re-scans. This affects:</p>
 <ul>
 <li><strong>USB keyboard/numpad</strong> — must be plugged in before spot-decoder starts</li>
@@ -323,10 +323,10 @@ Customer: E.R. Jahna Industries.
 <li><strong>Arduino controller</strong> — same issue</li>
 </ul>
 <p><strong>Fix:</strong> Add <code>libudev</code> (<code>libudev.h</code>) for enumeration and hotplug monitoring. Use <code>udev_monitor_new_from_netlink(&quot;udev&quot;)</code> to get a monitor FD, add it to the existing <code>select()</code> call in <code>input_wait()</code>, and on <code>add</code>/<code>remove</code> actions re-enumerate matching input devices.</p>
-<h3>2. Single FD per device type (multi-keyboard collision)</h3>
+<h3 id="section-2">2. Single FD per device type (multi-keyboard collision)</h3>
 <p>The Arduino Leonardo measurement controller (VID:PID <code>2341:8036</code>, serial <code>HIDPC</code>) registers as a USB HID keyboard — same type as a standard USB numpad. Both must be connected simultaneously (Leonardo for dual-joystick axle control, numpad for numeric input). With single-slot-per-type, only whichever appears on the lower <code>/dev/input/event</code> number gets opened.</p>
 <p><strong>Fix:</strong> Change from single FDs (<code>fdkb</code>, <code>fdjs</code>) to arrays per device type. Match the Arduino controller by its unique product name instead of generic &quot;Keyboard&quot; keyword.</p>
-<h3>3. Arduino Leonardo firmware identity</h3>
+<h3 id="section-3">3. Arduino Leonardo firmware identity</h3>
 <p>The Leonardo&#39;s USB descriptor strings are firmware-configurable. Rename from &quot;Arduino LLC Arduino Leonardo&quot; to a professional product name for device matching and appearance.</p>
 <p><strong>PlatformIO build flags:</strong></p>
 <pre><code class="language-ini">build_flags =

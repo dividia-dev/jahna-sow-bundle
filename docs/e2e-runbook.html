@@ -59,7 +59,7 @@ runbook walks every layer so we catch the gap.</p>
 <li><a href="./fastweigh-integration.md"><code>fastweigh-integration.md</code></a> — webhook signature flow</li>
 </ul>
 <hr>
-<h2>0. TL;DR</h2>
+<h2 id="section-0">0. TL;DR</h2>
 <pre><code class="language-bash"># From the cloudapi repo root:
 cd docs/jahna-fastweigh/scripts/e2e
 ./setup-once.sh                   # configure VM4001 testbed (idempotent, do once per branch)
@@ -71,7 +71,7 @@ cd docs/jahna-fastweigh/scripts/e2e
 (or this script later) can eyeball the row in the staging portal at
 <a href="http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/">http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/</a></p>
 <hr>
-<h2>1. Wire-protocol naming note (read before scripts)</h2>
+<h2 id="section-1">1. Wire-protocol naming note (read before scripts)</h2>
 <p><strong>Active wire name:</strong> <code>TareTicketReceived</code>
 <strong>Previous wire name (pre-2026-06-03):</strong> <code>TicketReceivedTare</code></p>
 <p>Decision 2026-06-03 (David): the tare-ticket event renames so the &quot;Tare&quot;
@@ -173,7 +173,7 @@ return only historical doc references):</p>
 </tr>
 </tbody></table>
 <hr>
-<h2>2. Architecture under test</h2>
+<h2 id="section-2">2. Architecture under test</h2>
 <pre><code>                       Apex XML drop                        FastWeigh webhook
                        (recorder/src/                      (POST /sw/webhooks/
                         scalewatcher/                       fastweigh)
@@ -239,7 +239,7 @@ return only historical doc references):</p>
               └─────────────────────────────────────────────────────────┘
 </code></pre>
 <hr>
-<h2>2.5. The full local-test stack (READ THIS FIRST)</h2>
+<h2 id="section-2-5">2.5. The full local-test stack (READ THIS FIRST)</h2>
 <p><strong>Why this section exists:</strong> without all four pieces lined up, &quot;I sent
 tickets to staging&quot; is a half-truth.  My 2026-06-03 session hit this:
 sent tickets to my local cloudapi which DID write rows to cloudapi_staging
@@ -400,8 +400,8 @@ produces.  thread_scale_reader can&#39;t tell the difference.</li>
 <li>Lets us drive any weight curve programmatically — repeatable tests.</li>
 </ul>
 <hr>
-<h2>3. Prerequisites</h2>
-<h3>3.1 Credentials (sourced from 1P vault via <code>claude-op</code>)</h3>
+<h2 id="section-3">3. Prerequisites</h2>
+<h3 id="section-3-1">3.1 Credentials (sourced from 1P vault via <code>claude-op</code>)</h3>
 <table>
 <thead>
 <tr>
@@ -437,7 +437,7 @@ produces.  thread_scale_reader can&#39;t tell the difference.</li>
 </tr>
 </tbody></table>
 <p>Memory references: <code>reference_cloudapi_staging_db</code>, <code>reference_jahna_integration_tunnels</code>.</p>
-<h3>3.2 Tunnels (run from home Mac — skip on office LAN)</h3>
+<h3 id="section-3-2">3.2 Tunnels (run from home Mac — skip on office LAN)</h3>
 <pre><code class="language-bash"># Forward tunnels — office LAN access + RDS bridge.
 sshpass -p &quot;$VM_PW&quot; ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no -N \
   -L 8080:192.168.0.141:80 \
@@ -455,7 +455,7 @@ sshpass -p &quot;$VM_PW&quot; ssh -o StrictHostKeyChecking=no -o PubkeyAuthentic
 <pre><code class="language-bash">nc -zv localhost 8080 8088 8811 3307 8081
 lsof -nP -iTCP:8081 -sTCP:LISTEN  # must show Docker, NOT ssh
 </code></pre>
-<h3>3.3 Software on the runner machine</h3>
+<h3 id="section-3-3">3.3 Software on the runner machine</h3>
 <ul>
 <li><code>sshpass</code> (<code>brew install sshpass</code>)</li>
 <li><code>mysql</code> client (<code>brew install mariadb</code> or <code>mysql-client</code>)</li>
@@ -465,10 +465,10 @@ lsof -nP -iTCP:8081 -sTCP:LISTEN  # must show Docker, NOT ssh
 <li>Optional: browse tool for portal automation (see §6.4)</li>
 </ul>
 <hr>
-<h2>4. One-time setup per branch</h2>
+<h2 id="section-4">4. One-time setup per branch</h2>
 <p>Run <code>./setup-once.sh</code> (in <code>scripts/e2e/</code>) which performs all of the below. Or
 do manually:</p>
-<h3>4.1 Confirm code state</h3>
+<h3 id="section-4-1">4.1 Confirm code state</h3>
 <pre><code class="language-bash"># nvr
 cd ~/Desktop/dev_projects/nvr &amp;&amp; git rev-parse HEAD
 git log --oneline -5  # should include the TareTicketReceived rename commit
@@ -481,7 +481,7 @@ cd ~/Desktop/dev_projects/cloudapi &amp;&amp; git rev-parse HEAD
 cd ~/Desktop/dev_projects/scalewatcher &amp;&amp; git rev-parse HEAD
 # must include the TareTicketReceived rename commit + portal color change
 </code></pre>
-<h3>4.2 Deploy to VM4001 (vboxsf write-through workaround until 0.144 fixed)</h3>
+<h3 id="section-4-2">4.2 Deploy to VM4001 (vboxsf write-through workaround until 0.144 fixed)</h3>
 <pre><code class="language-bash"># nvr recorder
 rsync -av --exclude=&#39;__pycache__&#39; --exclude=&#39;*.pyc&#39; \
   ~/Desktop/dev_projects/nvr/recorder/src/ \
@@ -490,7 +490,7 @@ rsync -av --exclude=&#39;__pycache__&#39; --exclude=&#39;*.pyc&#39; \
 # Restart recorder
 sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;systemctl restart recorder&#39;
 </code></pre>
-<h3>4.3 VM4001 POS config (via dview Setup OR direct DB write)</h3>
+<h3 id="section-4-3">4.3 VM4001 POS config (via dview Setup OR direct DB write)</h3>
 <p>These settings are required for the scenarios to behave deterministically.</p>
 <pre><code class="language-sql">-- VM4001 local mariadb (NOT staging)
 USE dtech;
@@ -518,17 +518,17 @@ INSERT INTO Misc (sCategory, sName, sValue) VALUES (&#39;system&#39;, &#39;paire
 </code></pre>
 <p>Per memory <code>project_globalize_paired_toggle</code>: the toggle lives in <code>Misc</code>, not
 <code>PosType19.fPairTareLoadout</code> anymore.</p>
-<h3>4.4 Cloud-upload enabled on VM4001</h3>
+<h3 id="section-4-4">4.4 Cloud-upload enabled on VM4001</h3>
 <pre><code class="language-bash">sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;touch /root/.recorder_cloudsw&#39;
 sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;ls -la /root/.recorder_cloudsw&#39;
 </code></pre>
-<h3>4.5 Local cloudapi container</h3>
+<h3 id="section-4-5">4.5 Local cloudapi container</h3>
 <pre><code class="language-bash"># From cloudapi repo root
 docker compose up -d
 docker compose ps                  # cloudapi-app-1 must be Up
 curl -s http://localhost:8081/health   # should 200
 </code></pre>
-<h3>4.6 Spot-decoder live at 192.168.0.69 (optional, for measurement scenarios)</h3>
+<h3 id="section-4-6">4.6 Spot-decoder live at 192.168.0.69 (optional, for measurement scenarios)</h3>
 <p>If running scenarios that need real measurement data:</p>
 <ul>
 <li>Spot-decoder daemon at 0.69:88 must be calibrated + reporting</li>
@@ -537,7 +537,7 @@ curl -s http://localhost:8081/health   # should 200
 <p>If skipping: scenarios still pass; <code>AlertNoMeasurement</code> is the expected
 graceful failure mode.</p>
 <hr>
-<h2>5. The 6 scenarios (matrix)</h2>
+<h2 id="section-5">5. The 6 scenarios (matrix)</h2>
 <p>Each scenario is <strong>one full transaction shape</strong> driven end-to-end. The shape
 column shows the events the recorder must emit (in order) for the test to
 be true-to-life.</p>
@@ -748,9 +748,9 @@ values pinned to whatever you&#39;d use in S1.</p>
 <li>Same <code>TareTicketReceived</code> rename at cloud boundary</li>
 </ul>
 <hr>
-<h2>6. Verification — per layer recipes</h2>
+<h2 id="section-6">6. Verification — per layer recipes</h2>
 <p>For each scenario, walk all 4 layers. PASS criteria below.</p>
-<h3>6.1 Layer 1 — recorder on VM4001</h3>
+<h3 id="section-6-1">6.1 Layer 1 — recorder on VM4001</h3>
 <p>Live log tail:</p>
 <pre><code class="language-bash">sshpass -p &quot;$VM_PW&quot; ssh root@192.168.0.141 &#39;journalctl -u recorder -f -n 100&#39;
 </code></pre>
@@ -770,7 +770,7 @@ values pinned to whatever you&#39;d use in S1.</p>
   FROM SW_Event ORDER BY id DESC LIMIT 30;&quot;&#39;
 </code></pre>
 <p><strong>PASS:</strong> events fire in the expected order, with the expected names.</p>
-<h3>6.2 Layer 2 — cloudapi staging logs</h3>
+<h3 id="section-6-2">6.2 Layer 2 — cloudapi staging logs</h3>
 <pre><code class="language-bash"># Tail cloudapi-staging logs (awslogs)
 awslogs get /aws/elasticbeanstalk/cloudapi-staging/var/log/web.stdout.log \
   --start=&#39;10m ago&#39; --watch | grep -E &#39;sw/addPos|sw/webhooks|TareTicket|sCorrelationId&#39;
@@ -787,7 +787,7 @@ upload):</p>
 </code></pre>
 <p><strong>PASS:</strong> every recorder upload reached cloudapi with 200; webhook logs
 match for FastWeigh.</p>
-<h3>6.3 Layer 3 — staging RDS rows</h3>
+<h3 id="section-6-3">6.3 Layer 3 — staging RDS rows</h3>
 <p>Verified by the standard SW_Transaction + SW_Event queries.</p>
 <p>Note: the staging RDS connection is via the SSH tunnel on port 3307.</p>
 <pre><code class="language-bash">RDS_USER=&quot;$(~/.local/bin/claude-op read &#39;op://Claude/cloudapi-staging-rds/username&#39;)&quot;
@@ -830,7 +830,7 @@ NULL (S2)</li>
 S2, S4) and <code>TicketReceived</code> for everything else</li>
 <li>No duplicate transactions per ticket (2x-bug regression check)</li>
 </ul>
-<h3>6.4 Layer 4 — staging portal UI</h3>
+<h3 id="section-6-4">6.4 Layer 4 — staging portal UI</h3>
 <p>URL: <a href="http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/">http://scalewatcher-staging.cloud.dividia.net.s3-website-us-east-1.amazonaws.com/</a>
 Login: <code>admin@dividia.net</code> / <code>Dt=7799!</code></p>
 <p>Steps (manual):</p>
@@ -871,7 +871,7 @@ $B &#39;screenshot transactions-after-scenario.png&#39;
 <p><strong>PASS:</strong> truck names visible, event icons correct, paired tare visually
 distinguishable.</p>
 <hr>
-<h2>7. Expected failure modes &amp; their alerts</h2>
+<h2 id="section-7">7. Expected failure modes &amp; their alerts</h2>
 <p>When the system is NOT in a perfect state, here&#39;s what should appear. Use
 this table to interpret unexpected results during scenario testing.</p>
 <table>
@@ -951,9 +951,9 @@ this table to interpret unexpected results during scenario testing.</p>
 </tr>
 </tbody></table>
 <hr>
-<h2>8. Open decisions affecting verification</h2>
+<h2 id="section-8">8. Open decisions affecting verification</h2>
 <p>These need to be settled before all scenarios pass cleanly.</p>
-<h3>8.1 Tare portal color (Task #2)</h3>
+<h3 id="section-8-1">8.1 Tare portal color (Task #2)</h3>
 <p>Currently both <code>TicketReceived</code> and <code>TareTicketReceived</code> render <code>navy + FaFileInvoice + opacity 0.5 for tare</code> in <code>scalewatcher/src/components/ transaction_board/Table.js:297-309</code>. The eyeball test reads them as &quot;same.&quot;</p>
 <p><strong>Pending David decision:</strong> what color for the tare ticket icon?</p>
 <ul>
@@ -963,7 +963,7 @@ data event&quot;)</li>
 </ul>
 <p>Until decided, scenarios S1, S2, S4 will pass DB-side but fail the &quot;visually
 distinguishable&quot; portal eyeball test.</p>
-<h3>8.2 Debug-only payload fields (Task #5)</h3>
+<h3 id="section-8-2">8.2 Debug-only payload fields (Task #5)</h3>
 <p>Plan: gate behind <code>Misc(&#39;system&#39;,&#39;debug-tag-events&#39;)=&#39;on&#39;</code>. When on, every
 event payload includes:</p>
 <ul>
@@ -972,36 +972,36 @@ event payload includes:</p>
 </ul>
 <p>Off by default in prod. Lets testers visually verify mode + source via
 event sData inspection in portal without code archaeology.</p>
-<h3>8.3 Testbed <code>bPairTimeout</code> value (Task #4)</h3>
+<h3 id="section-8-3">8.3 Testbed <code>bPairTimeout</code> value (Task #4)</h3>
 <p>Production default is 480 min (8h). Testbed override = 60 min so orphan-tare
 expiry (S2) is visible within a session. Setup script writes this; manual
 verification: <code>SELECT bPairTimeout FROM PosType19 WHERE bID = 1;</code></p>
 <hr>
-<h2>9. Common gotchas</h2>
-<h3>9.1 sMeasurementSource IP staleness</h3>
+<h2 id="section-9">9. Common gotchas</h2>
+<h3 id="section-9-1">9.1 sMeasurementSource IP staleness</h3>
 <p>Symptom: <code>AlertNoMeasurement</code> events on every scenario.
 Cause: PosType19.sMeasurementSource pinned to old IP (e.g., 0.187 instead of 0.69).
 Fix: <code>UPDATE PosType19 SET sMeasurementSource=&#39;192.168.0.69:88&#39; WHERE bID=1;</code> then restart recorder.</p>
-<h3>9.2 Paired toggle source confusion</h3>
+<h3 id="section-9-2">9.2 Paired toggle source confusion</h3>
 <p>Symptom: setting <code>PosType19.fPairTareLoadout</code> has no effect.
 Cause: as of 2026-06-02 (commit <code>336dadc28</code>), the toggle moved to <code>Misc(&#39;system&#39;,&#39;paired-tare-loadout&#39;)</code>. The per-POS column is dropped.
 Fix: write to <code>Misc</code> table, not <code>PosType19</code>. See <code>project_globalize_paired_toggle</code>.</p>
-<h3>9.3 Off-string boolean regression</h3>
+<h3 id="section-9-3">9.3 Off-string boolean regression</h3>
 <p>Symptom: paired mode behaves as ON even when <code>Misc.sValue=&#39;off&#39;</code>.
 Cause: <code>bool(&#39;off&#39;)</code> is <code>True</code> in Python (any non-empty string is truthy). Pre-2026-06-02 bug.
 Fix: ensured by commit <code>977147f14</code> (explicit string compare). Verify with
 <code>grep -n &#39;paired-tare-loadout&#39; recorder/src</code> — should compare against <code>&#39;on&#39;</code>.</p>
-<h3>9.4 2x cloud upload (multi-scale NVRs)</h3>
+<h3 id="section-9-4">9.4 2x cloud upload (multi-scale NVRs)</h3>
 <p>Symptom: 2 SW_Transaction rows per ticket on multi-scale NVRs.
 Cause: <code>thread_cloud_websocket</code> fans every ticket event to all POS threads. Pre-fix, each fan-out fresh-sCorrelationId&#39;d and defeated dedup.
 Fix: ensured by commit <code>cd1ae227c</code> (port routing in <code>addEvent</code>). Verify with
 <code>grep -n &#39;_port&#39; recorder/src/scalewatcher/thread_truck_transaction.py</code>.</p>
-<h3>9.5 dview test-api session modal</h3>
+<h3 id="section-9-5">9.5 dview test-api session modal</h3>
 <p>If using dview test-api for orchestration, a stale session modal blocks input. Per memory <code>feedback_dview_modal_blocks_input</code>, modals are invisible to default screenshot — use <code>?mode=robot</code> or probe via <code>dismiss-modal {&quot;text&quot;:&quot;Cancel&quot;}</code>.</p>
-<h3>9.6 0.144 build host broken</h3>
+<h3 id="section-9-6">9.6 0.144 build host broken</h3>
 <p>The canonical deploy path (build on 0.144 → VirtualBox VMs) is broken. Workaround: direct rsync to VM4001 — <code>vboxsf</code> writes through. See memory <code>project_dot144_broken_state</code>.</p>
 <hr>
-<h2>10. Scripts (in <code>scripts/e2e/</code>)</h2>
+<h2 id="section-10">10. Scripts (in <code>scripts/e2e/</code>)</h2>
 <p>Each script is idempotent and prints PASS/FAIL with the SW_Transaction.id
 for portal verification.</p>
 <table>
@@ -1087,7 +1087,7 @@ for portal verification.</p>
 runbook is the authoritative reference. Fill in scripts incrementally; the
 manual recipes in §6 always work.</p>
 <hr>
-<h2>11. Companion unit tests (recorder/tests/)</h2>
+<h2 id="section-11">11. Companion unit tests (recorder/tests/)</h2>
 <p>The runbook&#39;s 6 scenarios also exist as <strong>fast unit tests</strong> in
 <code>recorder/tests/test_sw_paired_scenario_matrix.py</code> (file to create alongside
 the rename PR). These run in <code>docker/run-unit-tests.sh</code> and catch
@@ -1104,7 +1104,7 @@ rename trigger conditions, tare flag propagation, sCorrelationId
 generation). The E2E runbook verifies the <strong>integrated</strong> contract (cloud
 handler, RDS rows, portal rendering). Both must pass to ship.</p>
 <hr>
-<h2>12. Maintenance</h2>
+<h2 id="section-12">12. Maintenance</h2>
 <p>Update this runbook when ANY of these change:</p>
 <ul>
 <li>A new event type lands in <code>recorder/src/scalewatcher/event.py</code></li>
@@ -1125,7 +1125,7 @@ handler, RDS rows, portal rendering). Both must pass to ship.</p>
 refresh the bookmarked HTML index (per memory
 <code>feedback_jahna_html_rebuild</code>).</p>
 <hr>
-<h2>13. Change log</h2>
+<h2 id="section-13">13. Change log</h2>
 <ul>
 <li><strong>2026-06-03</strong> — Initial draft. Authored after eyeball-test feedback identified that the 2026-06-02 paired-mode shipment was unit-tested + bytes-on-RDS verified but not portal-verified. Coverage gap diagnosed: hand-curl bypassed the recorder lifecycle, omitting <code>ScaleTruckEntering</code>, <code>truck</code> field, QR, Measurement. Six-scenario matrix designed to close the gap permanently.</li>
 </ul>

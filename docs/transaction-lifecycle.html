@@ -55,7 +55,7 @@ Customer: E.R. Jahna Industries.
 <p><strong>MODEL CORRECTION 2026-06-02:</strong> This doc&#39;s &quot;Tier 1 / Tier 3&quot; framing and any references to <code>transactionGuid</code> / <code>ticketPending</code> as the correlation source are <strong>superseded</strong>. Current model: <strong>tare↔loadout correlation keys on a configurable PosType19 tare-ticket field (default <code>truck_id</code>), provider-agnostic across Apex XML and FastWeigh JSON.</strong> Existing mechanism = <code>fPairTareLoadout</code> + <code>sMatchInbound</code>/<code>sTareField</code>/<code>sTareValue</code>. See <code>paired-mode-flow.md</code> for the live mechanics and <code>architecture.md</code> § 1a for the provider-agnostic stack. The &quot;how we hand FastWeigh our measurement data&quot; question is <strong>parked / not in current test scope</strong>.</p>
 </blockquote>
 <hr>
-<h2>1. Executive summary</h2>
+<h2 id="section-1">1. Executive summary</h2>
 <table>
 <thead>
 <tr>
@@ -117,7 +117,7 @@ Customer: E.R. Jahna Industries.
 </tbody></table>
 <p><strong>Bottom line:</strong> the NVR has the <em>primitives</em> (open state, event accumulation, configurable triggers, hung-timeout, state pickling) but lacks the <em>composition</em> (multi-phase transactions, cross-POS linking, ticket-to-NVR-port routing) to do the bundle natively. The composition is buildable on top of what&#39;s there; no rewrite needed. § 6 and § 7 sketch the two paths.</p>
 <hr>
-<h2>2. The TruckTransaction container</h2>
+<h2 id="section-2">2. The TruckTransaction container</h2>
 <p>The unit-of-work object that gets uploaded.</p>
 <table>
 <thead>
@@ -267,7 +267,7 @@ Customer: E.R. Jahna Industries.
 </tbody></table>
 <p>A <code>TruckTransaction</code> is a clearable container. It&#39;s not aware of &quot;tare phase&quot; vs &quot;loadout phase&quot; — it&#39;s one bag of events.</p>
 <hr>
-<h2>3. The state machine</h2>
+<h2 id="section-3">3. The state machine</h2>
 <p>Three states, with explicit transition rules. Driven by the <code>run()</code> loop in <code>ThreadTruckTransaction</code> (<code>:489-555</code>).</p>
 <h3>3a. The main loop (<code>:504-547</code>)</h3>
 <p>Every iteration:</p>
@@ -372,7 +372,7 @@ Customer: E.R. Jahna Industries.
 <p>The full <code>truck_list[sName]</code>, plus any queued-but-unprocessed events, plus <code>fTruckOnScale</code> and <code>fSkipTruck</code>, are pickled to <code>/tmp/rda/recorder_thread_{bID}_state.pkl</code> on shutdown. <code>loadState()</code> restores everything on startup. Survives recorder restart but not necessarily a full machine reboot (depends on <code>tmpdir</code> survival).</p>
 <p><strong>Implication for the pairing question:</strong> a transaction held in PROCESSING across a recorder restart survives. Useful — if the recorder crashes mid-cycle, the tare-side events aren&#39;t lost.</p>
 <hr>
-<h2>4. Event ingestion paths</h2>
+<h2 id="section-4">4. Event ingestion paths</h2>
 <p>Where events come INTO <code>ThreadTruckTransaction.addEvent</code> (which enqueues to <code>qEvent</code> for the state machine to process).</p>
 <table>
 <thead>
@@ -426,7 +426,7 @@ Customer: E.R. Jahna Industries.
 <li><strong>For a multi-POS setup (separated tare + loadout scales = two POS19 instances)</strong>, ticket routing is broadcast, not targeted. Both POS instances would attempt to claim the ticket. The second-ticket-different-number force-finish path (<code>:662-667</code>) would partially shield, but the design is racy.</li>
 </ul>
 <hr>
-<h2>5. Scale event emission</h2>
+<h2 id="section-5">5. Scale event emission</h2>
 <p>The scale reader (<code>thread_scale_reader.py</code>) runs as a separate thread, one per scale device. It polls the scale serial/TCP feed and emits the four scale event classes.</p>
 <table>
 <thead>
@@ -883,7 +883,7 @@ private String  sTareValue;          // default &quot;0&quot;
 <p>This would let Dividia admins enable/disable cloud scalewatcher through the same dview Setup screen they use for everything else, no SSH required. Visible to regular operators as informational (status indicator) but not togglable.</p>
 <p><strong>Not part of pairing work — but the implementation is similar enough (privilege gating, feature gating, gate-file management) that it could share helpers if scheduled in the same release.</strong></p>
 <hr>
-<h2>6. The two physical scale layouts</h2>
+<h2 id="section-6">6. The two physical scale layouts</h2>
 <h3>6a. Single combined scale (one physical scale, truck crosses twice)</h3>
 <pre><code>Truck visit:
   09:00:00  Scale_TruckEntering            (tare)
@@ -932,7 +932,7 @@ private String  sTareValue;          // default &quot;0&quot;
 <h3>6c. Why the current code emits two transactions either way</h3>
 <p>The state machine is fundamentally <strong>one cycle = one transaction</strong>. A &quot;cycle&quot; is defined by the configured start event arriving, events accumulating, and the configured finish event arriving. The <code>cStartTransaction</code>/<code>cFinishTransaction</code> config is per-direction (Inbound/Outbound), but POSType19 never switches direction (<code>cInboundDirectionTrigger = None</code>, <code>:336, 363</code>), so it always uses the outbound triggers. Even if the inbound triggers were activated, the state machine can only hold ONE cycle at a time per POS — there&#39;s no &quot;phase 1 / phase 2&quot; within a transaction.</p>
 <hr>
-<h2>7. What this CAN do (without code changes) — the achievable pairing-adjacent things</h2>
+<h2 id="section-7">7. What this CAN do (without code changes) — the achievable pairing-adjacent things</h2>
 <p>Given the existing primitives, you CAN do these things today without code surgery:</p>
 <ol>
 <li><strong>Capture all scale events + the ticket into one transaction, when the truck is on a single scale and the ticket arrives within <code>bHungTransTimeout</code>.</strong> Configure <code>cStartTransaction = Scale_TruckEntering</code>, <code>cFinishTransaction = Ticket_Received</code>. Truck enters → scale events accumulate → ticket arrives → upload fires with everything. If the ticket arrives late, the timer + hung-timeout protect against an infinitely-open transaction.</li>
@@ -943,7 +943,7 @@ private String  sTareValue;          // default &quot;0&quot;
 </ol>
 <p><strong>What this CANNOT do without code changes:</strong> wait for an event from a <em>different</em> POS instance, or for a tare cycle to &quot;pair&quot; with a loadout cycle that happens 5 minutes to several hours later, or attach a &quot;phase&quot; tag to events so the cloud can tell which scale fired which.</p>
 <hr>
-<h2>8. What CANNOT be done without code changes — the limitations</h2>
+<h2 id="section-8">8. What CANNOT be done without code changes — the limitations</h2>
 <p>In order of how blocking each is for the paired-transaction goal:</p>
 <h3>8a. POSType19 never switches direction at runtime (HARD LIMITATION)</h3>
 <p><code>_parseTTconfigPosType19</code> parses <code>sStartTransactionInbound</code> and <code>sFinishTransactionInbound</code> from config (<code>:342-349</code>) but the only thing that would switch the active direction is <code>cInboundDirectionTrigger</code> — and that is explicitly hardcoded to <code>None</code> for POSType19 (<code>:336</code>, comment at <code>:361-363</code>: <em>&quot;Disabling this for now until we rewrite to configure Type19 TruckTransaction directly&quot;</em>). The inbound config is parsed-but-dead-code.</p>
@@ -969,7 +969,7 @@ private String  sTareValue;          // default &quot;0&quot;
 <h3>8g. Minor: minimum-duration filter would need a tweak</h3>
 <p><code>_handleFinishedState</code> (<code>:696-702</code>) skips upload if <code>getDuration() &lt; bMinTransDuration</code> AND no ticket AND not forced-by-error. For a paired transaction where the tare side might initially have a short duration before the loadout phase begins, this filter would only fire if we never got a ticket and never had errors — likely harmless, but worth keeping in mind.</p>
 <hr>
-<h2>9. The correlation-key problem (the load-beari
+<h2 id="section-9">9. The correlation-key problem (the load-beari
   </main>
 </div>
 </body>
